@@ -11,18 +11,21 @@ input{margin:2px 0}
 <body>
 <h2>FRC Scouting</h2>
 <div><input id="key" placeholder="TBA API key" size="40"></div>
-<div><input id="src" placeholder="FIRST event link (frc-events.firstinspires.org/2026/WIMIL) or team number(s), e.g. 930 or 930, 254" size="80">
-<button id="go">Load data</button></div>
+<div>
+<input id="src" placeholder="Event name (e.g. SHOUT), event link, event key, or team number(s)" size="70">
+<input id="years" placeholder="Year(s), e.g. 2016 or 2022-2026" size="26" value="2026">
+<button id="go">Load data</button>
+</div>
 <button id="copy">Copy data</button>
 <button onclick="debugEpa()">Debug EPA</button>
 <div id="status"></div>
 <pre id="dbg" style="white-space:pre-wrap;font-size:12px"></pre>
 <table id="t"></table>
 <script>
-let YEAR=2026, RULE="max"; // RULE: "max", "latest" or "mean" when a team has 2 events in one week
+let RULE="max"; // "max", "latest" or "mean" when a team has 2 events in one week
 const TBA="https://www.thebluealliance.com/api/v3", SB="https://api.statbotics.io/v3";
-const H=["Team","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
-let rows=[], cache={}, sortCol=-1, asc=true, epaErr="";
+const H=["Team","Year","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
+let rows=[], cache={}, sortCol=-1, asc=true, epaErr="", multiYear=false;
 const $=id=>document.getElementById(id);
 const r2=x=>Math.round(x*100)/100;
 $("key").value=localStorage.getItem("tbakey")||"";
@@ -52,16 +55,15 @@ function pickEpa(j){
   for(const c of cands) if(typeof c==="number") return r2(c);
   return "";
 }
-function epaUrls(team){
+function epaUrls(team,year){
   return [
-    `${SB}/team_year/${team}/${YEAR}`,
-    `${SB}/team_years?team=${team}&year=${YEAR}`,
-    `https://api.statbotics.io/v2/team_year/${team}/${YEAR}`
+    `${SB}/team_year/${team}/${year}`,
+    `${SB}/team_years?team=${team}&year=${year}`
   ];
 }
-async function epa(team){
+async function epa(team,year){
   const errs=[];
-  for(const u of epaUrls(team)){
+  for(const u of epaUrls(team,year)){
     try{
       const r=await fetch(u);
       if(!r.ok){ errs.push("HTTP "+r.status); continue; }
@@ -70,13 +72,14 @@ async function epa(team){
       errs.push("no EPA field found");
     }catch(x){ errs.push("blocked/unreachable"); }
   }
-  epaErr="team "+team+": "+errs.join(", ")+" (click Debug EPA)";
+  epaErr="team "+team+" ("+year+"): "+errs.join(", ")+" (click Debug EPA)";
   return "";
 }
 async function debugEpa(){
   const team=(($("src").value.match(/\b\d{1,5}\b/)||[930])[0]);
-  let out="Testing Statbotics for team "+team+", year "+YEAR+"\n";
-  for(const u of epaUrls(team)){
+  const year=parseYears($("years").value)[0]||2026;
+  let out="Testing Statbotics for team "+team+", year "+year+"\n";
+  for(const u of epaUrls(team,year)){
     out+="\n"+u+"\n";
     try{
       const r=await fetch(u);
@@ -92,9 +95,9 @@ function combine(a){
   if(RULE==="mean") return r2(a.reduce((s,x)=>s+x,0)/a.length);
   return r2(a[a.length-1]);
 }
-async function one(t){
+async function one(t,year){
   const team=t.num;
-  const ev=(await tba(`/team/frc${team}/events/${YEAR}`))||[];
+  const ev=(await tba(`/team/frc${team}/events/${year}`))||[];
   ev.sort((a,b)=>(a.start_date||"").localeCompare(b.start_date||""));
   const today=new Date().toISOString().slice(0,10);
   const wk=Array.from({length:8},()=>[]); let worlds="", off=[];
@@ -108,45 +111,75 @@ async function one(t){
       const w=e.week+1; if(w>=1&&w<=7) wk[w].push(o);
     }
   }
-  const row=[team+(t.name?" - "+t.name:""), await epa(team)];
+  const row=[team+(t.name?" - "+t.name:""), year, await epa(team,year)];
   for(let w=1;w<=7;w++) row.push(combine(wk[w]));
   row.push(worlds);
   for(let i=0;i<5;i++) row.push(i<off.length?off[i]:"");
   return row;
 }
-// Turn the input box into a list of {num, name}
-async function resolveTeams(input){
+// "2026", "2024, 2026", "2022-2026"
+function parseYears(txt){
+  const out=new Set();
+  for(const part of txt.split(/[,\s]+/).filter(Boolean)){
+    const m=part.match(/^(\d{4})-(\d{4})$/);
+    if(m){ let a=+m[1], b=+m[2]; if(a>b)[a,b]=[b,a]; for(let y=a;y<=b&&y-a<30;y++) out.add(y); }
+    else if(/^\d{4}$/.test(part)) out.add(+part);
+  }
+  return [...out];
+}
+async function teamsFromEvent(key){
+  const teams=await tba(`/event/${key}/teams/simple`);
+  if(!teams||!teams.length) throw new Error(`The Blue Alliance has no team list for ${key} (it may not be uploaded yet)`);
+  return teams.map(t=>({num:t.team_number,name:t.nickname})).sort((a,b)=>a.num-b.num);
+}
+// Turn the input box into a list of {num, name}. rosterYear is used when searching by event name.
+async function resolveTeams(input,rosterYear){
   input=input.trim();
+  if(!input) throw new Error("Enter an event name, event link, or team number(s)");
+  // 1. only numbers/commas -> team numbers
+  if(/^[\d,\s]+$/.test(input)){
+    const nums=[...new Set((input.match(/\d+/g)||[]).map(Number))];
+    const out=[];
+    for(const n of nums){
+      const s=await tba(`/team/frc${n}/simple`);
+      out.push({num:n,name:s?s.nickname:""});
+    }
+    return out;
+  }
+  // 2. FIRST or TBA link
   let m=input.match(/frc-events\.firstinspires\.org\/(\d{4})\/([A-Za-z0-9]+)/i);
-  let key=null;
-  if(m){ YEAR=parseInt(m[1],10); key=m[1]+m[2].toLowerCase(); }
-  else{
-    m=input.match(/thebluealliance\.com\/event\/([0-9]{4}[A-Za-z0-9]+)/i);
-    if(m){ key=m[1].toLowerCase(); YEAR=parseInt(key.slice(0,4),10); }
+  if(m) return teamsFromEvent(m[1]+m[2].toLowerCase());
+  m=input.match(/thebluealliance\.com\/event\/(\d{4}[A-Za-z0-9]+)/i);
+  if(m) return teamsFromEvent(m[1].toLowerCase());
+  // 3. event key like 2026wimil
+  if(/^\d{4}(?=[a-z0-9]*[a-z])[a-z0-9]+$/i.test(input)) return teamsFromEvent(input.toLowerCase());
+  // 4. event name search in the roster year
+  const evs=(await tba(`/events/${rosterYear}/simple`))||[];
+  const words=input.toLowerCase().split(/\s+/);
+  const hits=evs.filter(e=>words.every(w=>(e.name+" "+e.key).toLowerCase().includes(w)));
+  if(!hits.length) throw new Error(`No ${rosterYear} event found matching "${input}"`);
+  let pick=hits.length===1?hits[0]:hits.find(e=>e.name.toLowerCase()===input.toLowerCase());
+  if(!pick){
+    const list=hits.slice(0,8).map(e=>`${e.name} (${e.key})`).join("; ");
+    throw new Error(`${hits.length} events match. Be more specific or type the event key. Matches: ${list}`);
   }
-  if(key){
-    const teams=await tba(`/event/${key}/teams/simple`);
-    if(!teams||!teams.length) throw new Error(`The Blue Alliance has no team list for ${key} (it may not be uploaded yet)`);
-    return teams.map(t=>({num:t.team_number,name:t.nickname})).sort((a,b)=>a.num-b.num);
-  }
-  const nums=[...new Set((input.match(/\d+/g)||[]).map(Number))];
-  if(!nums.length) throw new Error("Enter a FIRST event link or team number(s)");
-  const out=[];
-  for(const n of nums){
-    const s=await tba(`/team/frc${n}/simple`);
-    out.push({num:n,name:s?s.nickname:""});
-  }
-  return out;
+  $("status").textContent="Using event: "+pick.name+" ("+pick.key+")";
+  return teamsFromEvent(pick.key);
 }
 $("go").onclick=async()=>{
   localStorage.setItem("tbakey",$("key").value.trim());
   rows=[]; cache={}; epaErr=""; render();
   try{
+    const years=parseYears($("years").value);
+    if(!years.length) throw new Error("Enter at least one year, like 2026");
+    multiYear=years.length>1;
     $("status").textContent="Finding teams...";
-    const teams=await resolveTeams($("src").value);
-    for(let i=0;i<teams.length;i+=5){
-      $("status").textContent=`Loading ${Math.min(i+5,teams.length)}/${teams.length}...`;
-      rows.push(...await Promise.all(teams.slice(i,i+5).map(one)));
+    const teams=await resolveTeams($("src").value,years[0]);
+    const tasks=[];
+    for(const t of teams) for(const y of years) tasks.push([t,y]);
+    for(let i=0;i<tasks.length;i+=5){
+      $("status").textContent=`Loading ${Math.min(i+5,tasks.length)}/${tasks.length}...`;
+      rows.push(...await Promise.all(tasks.slice(i,i+5).map(([t,y])=>one(t,y))));
     }
     $("status").textContent="Done."+(epaErr?" EPA problem: "+epaErr:"");
   }catch(e){ $("status").textContent="Error: "+e.message; }
@@ -166,7 +199,9 @@ function render(){
 function sortBy(i){ asc=(sortCol===i)?!asc:true; sortCol=i; render(); }
 $("copy").onclick=async()=>{
   if(!rows.length){ $("status").textContent="Nothing to copy yet. Load data first."; return; }
-  const text=rows.map(r=>r.slice(1).join("\t")).join("\n");
+  // one year: data columns only (paste at B2). several years: Year column is included.
+  const cut=multiYear?1:2;
+  const text=rows.map(r=>r.slice(cut).join("\t")).join("\n");
   try{
     await navigator.clipboard.writeText(text);
   }catch(e){
@@ -177,6 +212,6 @@ $("copy").onclick=async()=>{
     document.body.removeChild(ta);
     if(!ok){ $("status").textContent="Copy was blocked by your browser. Select the table and copy it manually."; return; }
   }
-  $("status").textContent="Copied! Paste into cell B2 of your sheet.";
+  $("status").textContent="Copied! Paste into cell B2 of your sheet."+(multiYear?" (Year column is included since you loaded several years.)":"");
 };
 </script></body></html>
