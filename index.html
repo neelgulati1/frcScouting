@@ -1,26 +1,28 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>SHOUT Scouting</title>
+<html><head><meta charset="utf-8"><title>FRC Scouting</title>
 <style>
 body{font-family:sans-serif;margin:16px}
 table{border-collapse:collapse;margin-top:10px}
 td,th{border:1px solid #ccc;padding:4px 8px;text-align:right}
 td:first-child,th:first-child{text-align:left}
 th{cursor:pointer;background:#eee}
+input{margin:2px 0}
 </style></head>
 <body>
-<h2>SHOUT Pre-scouting</h2>
-<input id="key" placeholder="TBA API key" size="40">
-<button id="go">Load data</button>
-<input id="q" placeholder="Search team..." oninput="render()">
-<button id="copy">Copy for Sheets</button>
+<h2>FRC Scouting</h2>
+<div><input id="key" placeholder="TBA API key" size="40"></div>
+<div><input id="src" placeholder="FIRST event link (frc-events.firstinspires.org/2026/WIMIL) or team number(s), e.g. 930 or 930, 254" size="80">
+<button id="go">Load data</button></div>
+<button id="copy">Copy data</button>
+<button onclick="debugEpa()">Debug EPA</button>
 <div id="status"></div>
+<pre id="dbg" style="white-space:pre-wrap;font-size:12px"></pre>
 <table id="t"></table>
 <script>
-const YEAR=2026, SHOUT="2026wimil", RULE="max"; // "max", "latest" or "mean"
-const TEAMS={930:"Mukwonago BEARs",1091:"Oriole Assault",1220:"Rockhoppers - Hilltopper Robotics",1259:"Paradigm Shift",1306:"BadgerBOTS",1675:"UPS (Ultimate Protection Squad)",1714:"MORE Robotics",1732:"Hilltopper Robotics",1739:"Chicago Knights Robotics",1781:"Lindblom Electric Eagles",1792:"Round Table Robotics",2062:"CORE 2062",2151:"PMSA Monty Pythons",2194:"Fondy Fire",2202:"BEAST Robotics",2358:"Bearbotics",2704:"Roaring Robotics",3061:"Huskie Robotics",3596:"Rocket Robotics",3602:"RoboMos",4143:"MARS/WARS",4786:"Nicolet FEAR",5125:"Hawks on the Horizon",6381:"Red Raider Robotics",6574:"Ferradermis",6643:"Walnuts and Bolts",7619:"illumiBOTi",8701:"GRAFFITI",8847:"Milwaukee Cyber Cheese",9425:"Intra Milwaukee"};
+let YEAR=2026, RULE="max"; // RULE: "max", "latest" or "mean" when a team has 2 events in one week
 const TBA="https://www.thebluealliance.com/api/v3", SB="https://api.statbotics.io/v3";
 const H=["Team","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
-let rows=[], cache={}, sortCol=-1, asc=true;
+let rows=[], cache={}, sortCol=-1, asc=true, epaErr="";
 const $=id=>document.getElementById(id);
 const r2=x=>Math.round(x*100)/100;
 $("key").value=localStorage.getItem("tbakey")||"";
@@ -34,15 +36,36 @@ function oprs(k){
   if(!(k in cache)) cache[k]=tba("/event/"+k+"/oprs").then(d=>(d&&d.oprs)||{}).catch(()=>({}));
   return cache[k];
 }
+function pickEpa(j){
+  const e=(j&&j.epa)||{};
+  const cands=[
+    e.total_points&&e.total_points.mean,
+    e.total_points&&e.total_points.value,
+    typeof e.total_points==="number"?e.total_points:null,
+    e.stats&&e.stats.end,
+    e.stats&&e.stats.pre_champs,
+    e.norm,
+    j&&j.epa_end,
+    j&&j.norm_epa&&j.norm_epa.current
+  ];
+  for(const c of cands) if(typeof c==="number") return r2(c);
+  return "";
+}
 async function epa(team){
   try{
     const r=await fetch(`${SB}/team_year/${team}/${YEAR}`);
-    if(!r.ok) return "";
-    const e=(await r.json()).epa||{};
-    let v=e.total_points&&e.total_points.mean;
-    if(v==null) v=e.stats&&e.stats.end;
-    return v==null?"":r2(v);
-  }catch(x){return "";}
+    if(!r.ok){ epaErr="Statbotics returned HTTP "+r.status; return ""; }
+    const v=pickEpa(await r.json());
+    if(v==="") epaErr="Statbotics responded but no EPA field matched (click Debug EPA)";
+    return v;
+  }catch(x){ epaErr="Could not reach Statbotics: "+x.message+" (browser may be blocking it)"; return ""; }
+}
+async function debugEpa(){
+  try{
+    const r=await fetch(`${SB}/team_year/930/${YEAR}`);
+    const t=await r.text();
+    $("dbg").textContent="HTTP "+r.status+"\n"+t.slice(0,3000);
+  }catch(x){ $("dbg").textContent="Failed: "+x.message; }
 }
 function combine(a){
   if(!a.length) return "";
@@ -50,13 +73,14 @@ function combine(a){
   if(RULE==="mean") return r2(a.reduce((s,x)=>s+x,0)/a.length);
   return r2(a[a.length-1]);
 }
-async function one(team){
+async function one(t){
+  const team=t.num;
   const ev=(await tba(`/team/frc${team}/events/${YEAR}`))||[];
   ev.sort((a,b)=>(a.start_date||"").localeCompare(b.start_date||""));
   const today=new Date().toISOString().slice(0,10);
   const wk=Array.from({length:8},()=>[]); let worlds="", off=[];
   for(const e of ev){
-    if(e.key===SHOUT||(e.end_date||"9999")>today) continue;
+    if((e.end_date||"9999")>today) continue; // skip events not finished yet
     const o=(await oprs(e.key))["frc"+team];
     if(o==null) continue;
     if(e.event_type===99) off.push(r2(o));
@@ -65,40 +89,75 @@ async function one(team){
       const w=e.week+1; if(w>=1&&w<=7) wk[w].push(o);
     }
   }
-  const row=[team+" - "+TEAMS[team], await epa(team)];
+  const row=[team+(t.name?" - "+t.name:""), await epa(team)];
   for(let w=1;w<=7;w++) row.push(combine(wk[w]));
   row.push(worlds);
   for(let i=0;i<5;i++) row.push(i<off.length?off[i]:"");
   return row;
 }
+// Turn the input box into a list of {num, name}
+async function resolveTeams(input){
+  input=input.trim();
+  let m=input.match(/frc-events\.firstinspires\.org\/(\d{4})\/([A-Za-z0-9]+)/i);
+  let key=null;
+  if(m){ YEAR=parseInt(m[1],10); key=m[1]+m[2].toLowerCase(); }
+  else{
+    m=input.match(/thebluealliance\.com\/event\/([0-9]{4}[A-Za-z0-9]+)/i);
+    if(m){ key=m[1].toLowerCase(); YEAR=parseInt(key.slice(0,4),10); }
+  }
+  if(key){
+    const teams=await tba(`/event/${key}/teams/simple`);
+    if(!teams||!teams.length) throw new Error(`The Blue Alliance has no team list for ${key} (it may not be uploaded yet)`);
+    return teams.map(t=>({num:t.team_number,name:t.nickname})).sort((a,b)=>a.num-b.num);
+  }
+  const nums=[...new Set((input.match(/\d+/g)||[]).map(Number))];
+  if(!nums.length) throw new Error("Enter a FIRST event link or team number(s)");
+  const out=[];
+  for(const n of nums){
+    const s=await tba(`/team/frc${n}/simple`);
+    out.push({num:n,name:s?s.nickname:""});
+  }
+  return out;
+}
 $("go").onclick=async()=>{
   localStorage.setItem("tbakey",$("key").value.trim());
-  rows=[]; cache={};
-  const nums=Object.keys(TEAMS).map(Number);
+  rows=[]; cache={}; epaErr=""; render();
   try{
-    for(let i=0;i<nums.length;i+=5){
-      $("status").textContent=`Loading ${Math.min(i+5,nums.length)}/${nums.length}...`;
-      rows.push(...await Promise.all(nums.slice(i,i+5).map(one)));
+    $("status").textContent="Finding teams...";
+    const teams=await resolveTeams($("src").value);
+    for(let i=0;i<teams.length;i+=5){
+      $("status").textContent=`Loading ${Math.min(i+5,teams.length)}/${teams.length}...`;
+      rows.push(...await Promise.all(teams.slice(i,i+5).map(one)));
     }
-    $("status").textContent="Done.";
+    $("status").textContent="Done."+(epaErr?" EPA problem: "+epaErr:"");
   }catch(e){ $("status").textContent="Error: "+e.message; }
   render();
 };
 function render(){
-  const q=$("q").value.toLowerCase();
-  let v=rows.filter(r=>r[0].toLowerCase().includes(q));
+  let v=rows;
   if(sortCol>=0) v=[...v].sort((a,b)=>{
     const x=a[sortCol], y=b[sortCol];
     if(x===""&&y==="") return 0; if(x==="") return 1; if(y==="") return -1;
     const c=(typeof x==="number")?x-y:String(x).localeCompare(String(y));
     return asc?c:-c;
   });
-  $("t").innerHTML="<tr>"+H.map((h,i)=>`<th onclick="sortBy(${i})">${h}</th>`).join("")+"</tr>"
-    +v.map(r=>"<tr>"+r.map(c=>`<td>${c}</td>`).join("")+"</tr>").join("");
+  $("t").innerHTML=rows.length?("<tr>"+H.map((h,i)=>`<th onclick="sortBy(${i})">${h}</th>`).join("")+"</tr>"
+    +v.map(r=>"<tr>"+r.map(c=>`<td>${c}</td>`).join("")+"</tr>").join("")):"";
 }
 function sortBy(i){ asc=(sortCol===i)?!asc:true; sortCol=i; render(); }
-$("copy").onclick=()=>{
-  navigator.clipboard.writeText(rows.map(r=>r.slice(1).join("\t")).join("\n"));
-  $("status").textContent="Copied. Paste into B2 of your sheet.";
+$("copy").onclick=async()=>{
+  if(!rows.length){ $("status").textContent="Nothing to copy yet. Load data first."; return; }
+  const text=rows.map(r=>r.slice(1).join("\t")).join("\n");
+  try{
+    await navigator.clipboard.writeText(text);
+  }catch(e){
+    const ta=document.createElement("textarea");
+    ta.value=text; document.body.appendChild(ta); ta.select();
+    let ok=false;
+    try{ ok=document.execCommand("copy"); }catch(x){}
+    document.body.removeChild(ta);
+    if(!ok){ $("status").textContent="Copy was blocked by your browser. Select the table and copy it manually."; return; }
+  }
+  $("status").textContent="Copied! Paste into cell B2 of your sheet.";
 };
 </script></body></html>
