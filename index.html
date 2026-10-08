@@ -21,6 +21,18 @@ input{margin:2px 0}
 <div id="status"></div>
 <pre id="dbg" style="white-space:pre-wrap;font-size:12px"></pre>
 <table id="t"></table>
+
+<hr style="margin-top:30px">
+<h3>Match videos (one team, separate from the event above)</h3>
+<div>
+<input id="vteam" placeholder="Team number, e.g. 930" size="22">
+<input id="vyears" placeholder="Year(s), e.g. 2026 or 2024-2026" size="30" value="2026">
+<label><input type="checkbox" id="vonly" checked> Only matches that have a video</label>
+<button id="vgo">Show match videos</button>
+</div>
+<div id="vstatus"></div>
+<table id="vt"></table>
+
 <script>
 let RULE="max"; // "max", "latest" or "mean" when a team has 2 events in one week
 const TBA="https://www.thebluealliance.com/api/v3", SB="https://api.statbotics.io/v3";
@@ -213,5 +225,54 @@ $("copy").onclick=async()=>{
     if(!ok){ $("status").textContent="Copy was blocked by your browser. Select the table and copy it manually."; return; }
   }
   $("status").textContent="Copied! Paste into cell B2 of your sheet."+(multiYear?" (Year column is included since you loaded several years.)":"");
+};
+
+// ---- Match videos for one team ----
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function matchLabel(m){
+  const L={qm:"Qualification",ef:"Eighthfinal",qf:"Quarterfinal",sf:"Semifinal",f:"Final"};
+  const n=L[m.comp_level]||m.comp_level;
+  return m.comp_level==="qm"?`${n} ${m.match_number}`:`${n} ${m.set_number}-${m.match_number}`;
+}
+$("vgo").onclick=async()=>{
+  localStorage.setItem("tbakey",$("key").value.trim());
+  $("vt").innerHTML="";
+  const num=($("vteam").value.match(/\d+/)||[])[0];
+  const years=parseYears($("vyears").value);
+  if(!num){ $("vstatus").textContent="Enter a team number."; return; }
+  if(!years.length){ $("vstatus").textContent="Enter at least one year."; return; }
+  const onlyVideo=$("vonly").checked;
+  const me="frc"+num;
+  const out=[];
+  try{
+    for(const y of years){
+      $("vstatus").textContent=`Loading ${y}...`;
+      const evs=(await tba(`/team/${me}/events/${y}/simple`))||[];
+      const evMap={}; evs.forEach(e=>evMap[e.key]=e);
+      const ms=(await tba(`/team/${me}/matches/${y}`))||[];
+      for(const m of ms){
+        const vids=(m.videos||[]).filter(v=>v.type==="youtube");
+        if(onlyVideo&&!vids.length) continue;
+        const color=(m.alliances.red.team_keys.includes(me))?"red":"blue";
+        const opp=color==="red"?"blue":"red";
+        const mine=m.alliances[color].score, theirs=m.alliances[opp].score;
+        let result="";
+        if(mine>=0&&theirs>=0) result=mine>theirs?"Win":(mine<theirs?"Loss":"Tie");
+        const ev=evMap[m.event_key]||{};
+        out.push({y, ev:ev.name||m.event_key, start:ev.start_date||"", t:m.time||0,
+          label:matchLabel(m), color, score:(mine>=0?mine+" - "+theirs:""), result, vids});
+      }
+    }
+    out.sort((a,b)=>(b.start+("0000000000"+b.t).slice(-10)).localeCompare(a.start+("0000000000"+a.t).slice(-10)));
+    if(!out.length){
+      $("vstatus").textContent=`No ${onlyVideo?"video ":""}matches found for team ${num} in ${years.join(", ")}.`+(onlyVideo?" Try unchecking the box to see all matches.":"");
+      return;
+    }
+    $("vstatus").textContent=`${out.length} match(es) for team ${num}. Newest first.`;
+    $("vt").innerHTML="<tr><th>Year</th><th>Event</th><th>Match</th><th>Alliance</th><th>Score (team - opp.)</th><th>Result</th><th>Video</th></tr>"
+      +out.map(r=>`<tr><td>${r.y}</td><td style="text-align:left">${esc(r.ev)}</td><td style="text-align:left">${esc(r.label)}</td><td>${r.color}</td><td>${r.score}</td><td>${r.result}</td><td style="text-align:left">`
+        +(r.vids.length?r.vids.map((v,i)=>`<a href="https://www.youtube.com/watch?v=${encodeURIComponent(v.key)}" target="_blank" rel="noopener">Watch${r.vids.length>1?" "+(i+1):""}</a>`).join(" "):"no video")
+        +"</td></tr>").join("");
+  }catch(e){ $("vstatus").textContent="Error: "+e.message; }
 };
 </script></body></html>
