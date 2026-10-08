@@ -37,6 +37,8 @@ function oprs(k){
   return cache[k];
 }
 function pickEpa(j){
+  if(Array.isArray(j)) j=j[0];
+  if(Array.isArray(j&&j.results)) j=j.results[0];
   const e=(j&&j.epa)||{};
   const cands=[
     e.total_points&&e.total_points.mean,
@@ -44,28 +46,45 @@ function pickEpa(j){
     typeof e.total_points==="number"?e.total_points:null,
     e.stats&&e.stats.end,
     e.stats&&e.stats.pre_champs,
-    e.norm,
     j&&j.epa_end,
-    j&&j.norm_epa&&j.norm_epa.current
+    j&&j.epa_mean
   ];
   for(const c of cands) if(typeof c==="number") return r2(c);
   return "";
 }
+function epaUrls(team){
+  return [
+    `${SB}/team_year/${team}/${YEAR}`,
+    `${SB}/team_years?team=${team}&year=${YEAR}`,
+    `https://api.statbotics.io/v2/team_year/${team}/${YEAR}`
+  ];
+}
 async function epa(team){
-  try{
-    const r=await fetch(`${SB}/team_year/${team}/${YEAR}`);
-    if(!r.ok){ epaErr="Statbotics returned HTTP "+r.status; return ""; }
-    const v=pickEpa(await r.json());
-    if(v==="") epaErr="Statbotics responded but no EPA field matched (click Debug EPA)";
-    return v;
-  }catch(x){ epaErr="Could not reach Statbotics: "+x.message+" (browser may be blocking it)"; return ""; }
+  const errs=[];
+  for(const u of epaUrls(team)){
+    try{
+      const r=await fetch(u);
+      if(!r.ok){ errs.push("HTTP "+r.status); continue; }
+      const v=pickEpa(await r.json());
+      if(v!=="") return v;
+      errs.push("no EPA field found");
+    }catch(x){ errs.push("blocked/unreachable"); }
+  }
+  epaErr="team "+team+": "+errs.join(", ")+" (click Debug EPA)";
+  return "";
 }
 async function debugEpa(){
-  try{
-    const r=await fetch(`${SB}/team_year/930/${YEAR}`);
-    const t=await r.text();
-    $("dbg").textContent="HTTP "+r.status+"\n"+t.slice(0,3000);
-  }catch(x){ $("dbg").textContent="Failed: "+x.message; }
+  const team=(($("src").value.match(/\b\d{1,5}\b/)||[930])[0]);
+  let out="Testing Statbotics for team "+team+", year "+YEAR+"\n";
+  for(const u of epaUrls(team)){
+    out+="\n"+u+"\n";
+    try{
+      const r=await fetch(u);
+      const t=await r.text();
+      out+="HTTP "+r.status+"\n"+t.slice(0,1500)+"\n";
+    }catch(x){ out+="Failed: "+x.message+"\n"; }
+  }
+  $("dbg").textContent=out;
 }
 function combine(a){
   if(!a.length) return "";
