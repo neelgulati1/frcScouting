@@ -12,7 +12,7 @@ input{margin:2px 0}
 <h2>FRC Scouting</h2>
 <div><input id="key" placeholder="TBA API key" size="40"></div>
 <div>
-<input id="src" placeholder="Event name (e.g. SHOUT), event link, event key, or team number(s)" size="70">
+<input id="src" placeholder="Event name, event link, event key, or team number(s), e.g. 3061" size="70">
 <input id="years" placeholder="Year(s), e.g. 2016 or 2022-2026" size="26" value="2026">
 <button id="go">Load data</button>
 </div>
@@ -25,7 +25,7 @@ input{margin:2px 0}
 <hr style="margin-top:30px">
 <h3>Match videos (one team, separate from the event above)</h3>
 <div>
-<input id="vteam" placeholder="Team number, e.g. 930" size="22">
+<input id="vteam" placeholder="Team number, e.g. 3061" size="22">
 <input id="vyears" placeholder="Year(s), e.g. 2026 or 2024-2026" size="30" value="2026">
 <label><input type="checkbox" id="vonly" checked> Only matches that have a video</label>
 <button id="vgo">Show match videos</button>
@@ -88,7 +88,7 @@ async function epa(team,year,evKey){
   return "";
 }
 async function debugEpa(){
-  const team=(($("src").value.match(/\b\d{1,5}\b/)||[930])[0]);
+  const team=(($("src").value.match(/\b\d{1,5}\b/)||[3061])[0]);
   const year=parseYears($("years").value)[0]||2026;
   let out="Testing Statbotics for team "+team+", year "+year+"\n";
   let evKey="";
