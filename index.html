@@ -67,32 +67,41 @@ function pickEpa(j){
   for(const c of cands) if(typeof c==="number") return r2(c);
   return "";
 }
-function epaUrls(team,year){
-  return [
-    `${SB}/team_year/${team}/${year}`,
-    `${SB}/team_years?team=${team}&year=${year}`
-  ];
+function epaUrls(team,year,evKey){
+  const u=[[ "season lookup", `${SB}/team_year/${team}/${year}` ]];           // 1st: original method
+  if(evKey) u.push([ "last-event lookup", `${SB}/team_event/${team}/${evKey}` ]); // 2nd: last real event
+  u.push([ "team_years lookup", `${SB}/team_years?team=${team}&year=${year}` ]);     // 3rd: backup
+  return u;
 }
-async function epa(team,year){
+async function epa(team,year,evKey){
   const errs=[];
-  for(const u of epaUrls(team,year)){
+  for(const [label,u] of epaUrls(team,year,evKey)){
     try{
       const r=await fetch(u);
-      if(!r.ok){ errs.push("HTTP "+r.status); continue; }
+      if(!r.ok){ errs.push(label+": HTTP "+r.status); continue; }
       const v=pickEpa(await r.json());
       if(v!=="") return v;
-      errs.push("no EPA field found");
-    }catch(x){ errs.push("blocked/unreachable"); }
+      errs.push(label+": no EPA in response");
+    }catch(x){ errs.push(label+": blocked/unreachable"); }
   }
-  epaErr="team "+team+" ("+year+"): "+errs.join(", ")+" (click Debug EPA)";
+  epaErr="EPA failed for team "+team+" ("+year+"), all methods failed: "+errs.join("; ")+" (click Debug EPA)";
   return "";
 }
 async function debugEpa(){
   const team=(($("src").value.match(/\b\d{1,5}\b/)||[930])[0]);
   const year=parseYears($("years").value)[0]||2026;
   let out="Testing Statbotics for team "+team+", year "+year+"\n";
-  for(const u of epaUrls(team,year)){
-    out+="\n"+u+"\n";
+  let evKey="";
+  try{
+    const ev=(await tba(`/team/frc${team}/events/${year}/simple`))||[];
+    ev.sort((a,b)=>(a.start_date||"").localeCompare(b.start_date||""));
+    const today=new Date().toISOString().slice(0,10);
+    const real=ev.filter(e=>e.event_type!==99&&e.event_type!==100&&(e.end_date||"9999")<=today);
+    evKey=real.length?real[real.length-1].key:"";
+    out+="Last real (non-offseason) event per TBA: "+(evKey||"none found")+"\n";
+  }catch(x){ out+="Could not read TBA events: "+x.message+"\n"; }
+  for(const [label,u] of epaUrls(team,year,evKey)){
+    out+="\n"+label+": "+u+"\n";
     try{
       const r=await fetch(u);
       const t=await r.text();
@@ -123,7 +132,9 @@ async function one(t,year){
       const w=e.week+1; if(w>=1&&w<=7) wk[w].push(o);
     }
   }
-  const row=[team+(t.name?" - "+t.name:""), year, await epa(team,year)];
+  const real=ev.filter(e=>e.event_type!==99&&e.event_type!==100&&(e.end_date||"9999")<=today);
+  const evKey=real.length?real[real.length-1].key:"";
+  const row=[team+(t.name?" - "+t.name:""), year, await epa(team,year,evKey)];
   for(let w=1;w<=7;w++) row.push(combine(wk[w]));
   row.push(worlds);
   for(let i=0;i<5;i++) row.push(i<off.length?off[i]:"");
