@@ -72,7 +72,25 @@ function epaUrls(team,year,evKey){
   if(evKey) u.push([ "last-event lookup", `${SB}/team_event/${team}/${evKey}` ]); // 2nd: last regular-season event
   u.push([ "team_years lookup", `${SB}/team_years?team=${team}&year=${year}` ]);     // 3rd: backup
   if(evKey) u.push([ "event-list lookup", `${SB}/team_events?event=${evKey}&limit=1000`, "list" ]); // 4th: whole event, pick the team out
+  if(evKey) u.push([ "event lookup", `${SB}/event/${evKey}`, "list" ]); // 5th: single-event lookup, search inside it for the team
   return u;
+}
+
+// Search any JSON shape for an object that belongs to this team and carries an EPA
+function findTeamEntry(root,team){
+  const want=String(team);
+  const stack=[root];
+  while(stack.length){
+    const x=stack.pop();
+    if(x&&typeof x==="object"){
+      if(!Array.isArray(x)){
+        const id=x.team??x.team_number??x.team_key??x.number;
+        if(id!=null&&String(id).replace("frc","")===want&&pickEpa(x)!=="") return x;
+      }
+      for(const k in x) stack.push(x[k]);
+    }
+  }
+  return null;
 }
 const evListCache={};
 async function epa(team,year,evKey){
@@ -83,9 +101,8 @@ async function epa(team,year,evKey){
       if(kind==="list"){
         if(!(u in evListCache)) evListCache[u]=fetch(u).then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)));
         j=await evListCache[u];
-        const arr=Array.isArray(j)?j:((j&&j.results)||[]);
-        j=arr.find(x=>String(x.team||x.team_number||x.team_key||"").replace("frc","")===String(team))||null;
-        if(!j){ errs.push(label+": team not in event list"); continue; }
+        j=findTeamEntry(j,team);
+        if(!j){ errs.push(label+": team not found in response"); continue; }
       }else{
         const r=await fetch(u);
         if(!r.ok){ errs.push(label+": HTTP "+r.status); continue; }
