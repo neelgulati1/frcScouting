@@ -6,16 +6,17 @@ table{border-collapse:collapse;margin-top:10px}
 td,th{border:1px solid #ccc;padding:4px 8px;text-align:right}
 td:first-child,th:first-child{text-align:left}
 th{cursor:pointer;background:#eee}
+td.l,th.l{text-align:left}
 input{margin:2px 0}
+.err{font-weight:bold}
+td b.n{margin-right:8px}
 </style></head>
 <body>
 <h2>FRC Scouting</h2>
 <div><input id="key" placeholder="TBA API key" size="40"></div>
-<div>
-<input id="src" placeholder="Event name, event link, event key, or team number(s), e.g. 3061" size="70">
+<div><input id="src" placeholder="Event name, event link, event key, or team number(s), e.g. 3061" size="70">
 <input id="years" placeholder="Year(s), e.g. 2016 or 2022-2026" size="26" value="2026">
-<button id="go">Load data</button>
-</div>
+<button id="go">Load data</button></div>
 <button id="copy">Copy data</button>
 <button onclick="debugEpa()">Debug EPA</button>
 <div id="status"></div>
@@ -32,7 +33,6 @@ input{margin:2px 0}
 </div>
 <div id="vstatus"></div>
 <table id="vt"></table>
-
 <script>
 let RULE="max"; // "max", "latest" or "mean" when a team has 2 events in one week
 const TBA="https://www.thebluealliance.com/api/v3", SB="https://api.statbotics.io/v3";
@@ -69,20 +69,35 @@ function pickEpa(j){
 }
 function epaUrls(team,year,evKey){
   const u=[[ "season lookup", `${SB}/team_year/${team}/${year}` ]];           // 1st: original method
-  if(evKey) u.push([ "last-event lookup", `${SB}/team_event/${team}/${evKey}` ]); // 2nd: last real event
+  if(evKey) u.push([ "last-event lookup", `${SB}/team_event/${team}/${evKey}` ]); // 2nd: last regular-season event
   u.push([ "team_years lookup", `${SB}/team_years?team=${team}&year=${year}` ]);     // 3rd: backup
+  if(evKey) u.push([ "event-list lookup", `${SB}/team_events?event=${evKey}&limit=1000`, "list" ]); // 4th: whole event, pick the team out
   return u;
 }
+const evListCache={};
 async function epa(team,year,evKey){
   const errs=[];
-  for(const [label,u] of epaUrls(team,year,evKey)){
+  for(const [label,u,kind] of epaUrls(team,year,evKey)){
     try{
-      const r=await fetch(u);
-      if(!r.ok){ errs.push(label+": HTTP "+r.status); continue; }
-      const v=pickEpa(await r.json());
+      let j;
+      if(kind==="list"){
+        if(!(u in evListCache)) evListCache[u]=fetch(u).then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)));
+        j=await evListCache[u];
+        const arr=Array.isArray(j)?j:((j&&j.results)||[]);
+        j=arr.find(x=>String(x.team||x.team_number||x.team_key||"").replace("frc","")===String(team))||null;
+        if(!j){ errs.push(label+": team not in event list"); continue; }
+      }else{
+        const r=await fetch(u);
+        if(!r.ok){ errs.push(label+": HTTP "+r.status); continue; }
+        j=await r.json();
+      }
+      const v=pickEpa(j);
       if(v!=="") return v;
       errs.push(label+": no EPA in response");
-    }catch(x){ errs.push(label+": blocked/unreachable"); }
+    }catch(x){
+      delete evListCache[u];
+      errs.push(label+": "+(String(x.message).startsWith("HTTP")?x.message:"blocked/unreachable"));
+    }
   }
   epaErr="EPA failed for team "+team+" ("+year+"), all methods failed: "+errs.join("; ")+" (click Debug EPA)";
   return "";
@@ -96,7 +111,7 @@ async function debugEpa(){
     const ev=(await tba(`/team/frc${team}/events/${year}/simple`))||[];
     ev.sort((a,b)=>(a.start_date||"").localeCompare(b.start_date||""));
     const today=new Date().toISOString().slice(0,10);
-    const real=ev.filter(e=>e.event_type!==99&&e.event_type!==100&&(e.end_date||"9999")<=today);
+    const real=ev.filter(e=>[0,1,2,3,4,5].includes(e.event_type)&&(e.end_date||"9999")<=today);
     evKey=real.length?real[real.length-1].key:"";
     out+="Last real (non-offseason) event per TBA: "+(evKey||"none found")+"\n";
   }catch(x){ out+="Could not read TBA events: "+x.message+"\n"; }
@@ -132,7 +147,7 @@ async function one(t,year){
       const w=e.week+1; if(w>=1&&w<=7) wk[w].push(o);
     }
   }
-  const real=ev.filter(e=>e.event_type!==99&&e.event_type!==100&&(e.end_date||"9999")<=today);
+  const real=ev.filter(e=>[0,1,2,3,4,5].includes(e.event_type)&&(e.end_date||"9999")<=today);
   const evKey=real.length?real[real.length-1].key:"";
   const row=[team+(t.name?" - "+t.name:""), year, await epa(team,year,evKey)];
   for(let w=1;w<=7;w++) row.push(combine(wk[w]));
@@ -216,8 +231,15 @@ function render(){
     const c=(typeof x==="number")?x-y:String(x).localeCompare(String(y));
     return asc?c:-c;
   });
-  $("t").innerHTML=rows.length?("<tr>"+H.map((h,i)=>`<th onclick="sortBy(${i})">${h}</th>`).join("")+"</tr>"
-    +v.map(r=>"<tr>"+r.map(c=>`<td>${c}</td>`).join("")+"</tr>").join("")):"";
+  const cell=(c,i)=>{
+    if(i===0){
+      const m=String(c).match(/^(\d+)(?: - (.*))?$/);
+      return m?`<td><b class="n">${m[1]}</b>${esc(m[2]||"")}</td>`:`<td>${esc(c)}</td>`;
+    }
+    return `<td${i===2?' class="epa"':""}>${esc(c)}</td>`;
+  };
+  $("t").innerHTML=rows.length?("<tr>"+H.map((h,i)=>`<th class="${i===sortCol?"sorted "+(asc?"asc":"desc"):""}" onclick="sortBy(${i})">${h}</th>`).join("")+"</tr>"
+    +v.map(r=>"<tr>"+r.map(cell).join("")+"</tr>").join("")):"";
 }
 function sortBy(i){ asc=(sortCol===i)?!asc:true; sortCol=i; render(); }
 $("copy").onclick=async()=>{
@@ -280,10 +302,26 @@ $("vgo").onclick=async()=>{
       return;
     }
     $("vstatus").textContent=`${out.length} match(es) for team ${num}. Newest first.`;
-    $("vt").innerHTML="<tr><th>Year</th><th>Event</th><th>Match</th><th>Alliance</th><th>Score (team - opp.)</th><th>Result</th><th>Video</th></tr>"
-      +out.map(r=>`<tr><td>${r.y}</td><td style="text-align:left">${esc(r.ev)}</td><td style="text-align:left">${esc(r.label)}</td><td>${r.color}</td><td>${r.score}</td><td>${r.result}</td><td style="text-align:left">`
-        +(r.vids.length?r.vids.map((v,i)=>`<a href="https://www.youtube.com/watch?v=${encodeURIComponent(v.key)}" target="_blank" rel="noopener">Watch${r.vids.length>1?" "+(i+1):""}</a>`).join(" "):"no video")
-        +"</td></tr>").join("");
+    $("vt").innerHTML='<tr><th class="l">Year</th><th class="l">Event</th><th class="l">Match</th><th class="l">Alliance</th><th>Score (team - opp.)</th><th class="l">Result</th><th class="l">Video</th></tr>'
+      +out.map(r=>`<tr><td>${r.y}</td><td class="l">${esc(r.ev)}</td><td class="l">${esc(r.label)}</td><td class="l ${r.color}">${r.color}</td><td>${r.score}</td><td class="l ${r.result==="Win"?"win":(r.result==="Loss"?"loss":"")}">${r.result}</td><td class="l">`
+        +(r.vids.length?r.vids.map((v,i)=>`<a href="https://www.youtube.com/watch?v=${encodeURIComponent(v.key)}" target="_blank" rel="noopener">Watch${r.vids.length>1?" "+(i+1):""}</a>`).join(" &nbsp; "):"no video")
+        +`</td></tr>`).join("");
   }catch(e){ $("vstatus").textContent="Error: "+e.message; }
 };
+
+// top-bar tabs
+document.querySelectorAll(".top nav a").forEach(a=>a.onclick=()=>{
+  document.querySelectorAll(".top nav a").forEach(x=>x.classList.toggle("on",x===a));
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on",v.id==="view-"+a.dataset.view));
+});
+// red text for errors, green when finished
+function watchStatus(id){
+  const el=$(id);
+  new MutationObserver(()=>{
+    const t=el.textContent;
+    el.classList.toggle("err",/^Error|problem|failed|No .* found|Nothing to copy|Enter /i.test(t));
+    el.classList.toggle("ok",/^Done\.$|^Copied!/.test(t));
+  }).observe(el,{childList:true,characterData:true,subtree:true});
+}
+watchStatus("status"); watchStatus("vstatus");
 </script></body></html>
