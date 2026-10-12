@@ -1,344 +1,509 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>FRC Scouting</title>
-<style>
-body{font-family:sans-serif;margin:16px}
-table{border-collapse:collapse;margin-top:10px}
-td,th{border:1px solid #ccc;padding:4px 8px;text-align:right}
-td:first-child,th:first-child{text-align:left}
-th{cursor:pointer;background:#eee}
-td.l,th.l{text-align:left}
-input{margin:2px 0}
-.err{font-weight:bold}
-td b.n{margin-right:8px}
-</style></head>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>FRC Scouting & Video Analyzer</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; color: #222; max-width: 1360px; }
+    h2 { margin: 0 0 10px 0; font-size: 24px; font-weight: bold; }
+    h3 { margin: 0 0 10px 0; font-size: 18px; font-weight: bold; }
+    nav { border-bottom: 1px solid #ccc; margin-bottom: 14px; display: flex; gap: 4px; }
+    nav button { padding: 6px 16px; cursor: pointer; border: 1px solid #ccc; background-color: #eee; font-size: 13px; border-radius: 3px 3px 0 0; margin-bottom: -1px; }
+    nav button.active { background-color: #fff; border-bottom: 1px solid #fff; font-weight: bold; }
+    table { border-collapse: collapse; margin-top: 10px; width: 100%; font-size: 13px; }
+    td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: right; }
+    td:first-child, th:first-child { text-align: left; }
+    th { cursor: pointer; background: #eee; user-select: none; white-space: nowrap; }
+    th.l, td.l { text-align: left; }
+    input { margin: 2px 0; padding: 4px 8px; border: 1px solid #ccc; border-radius: 2px; font-size: 13px; }
+    button { padding: 4px 10px; margin: 2px 0; border: 1px solid #bbb; background: #f0f0f0; cursor: pointer; border-radius: 3px; font-size: 13px; }
+    button:hover { background: #e4e4e4; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .err { color: #b00; font-weight: bold; }
+    .ok { color: #070; font-weight: bold; }
+    td b.n { margin-right: 8px; }
+    .red { color: #c00; font-weight: bold; }
+    .blue { color: #0066cc; font-weight: bold; }
+    .win { color: #070; font-weight: bold; }
+    .loss { color: #c00; }
+    .epa { background-color: #f5f9ff; font-weight: bold; }
+  </style>
+</head>
 <body>
-<h2>FRC Scouting</h2>
-<div><input id="key" placeholder="TBA API key" size="40"></div>
-<div><input id="src" placeholder="Event name, event link, event key, or team number(s), e.g. 3061" size="70">
-<input id="years" placeholder="Year(s), e.g. 2016 or 2022-2026" size="26" value="2026">
-<button id="go">Load data</button></div>
-<button id="copy">Copy data</button>
-<button onclick="debugEpa()">Debug EPA</button>
-<div id="status"></div>
-<pre id="dbg" style="white-space:pre-wrap;font-size:12px"></pre>
-<table id="t"></table>
 
-<hr style="margin-top:30px">
-<h3>Match videos (one team, separate from the event above)</h3>
-<div>
-<input id="vteam" placeholder="Team number, e.g. 3061" size="22">
-<input id="vyears" placeholder="Year(s), e.g. 2026 or 2024-2026" size="30" value="2026">
-<label><input type="checkbox" id="vonly" checked> Only matches that have a video</label>
-<button id="vgo">Show match videos</button>
-</div>
-<div id="vstatus"></div>
-<table id="vt"></table>
-<script>
-let RULE="max"; // "max", "latest" or "mean" when a team has 2 events in one week
-const TBA="https://www.thebluealliance.com/api/v3", SB="https://api.statbotics.io/v3";
-const H=["Team","Year","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
-let rows=[], cache={}, sortCol=-1, asc=true, epaErr="", multiYear=false;
-const $=id=>document.getElementById(id);
-const r2=x=>Math.round(x*100)/100;
-$("key").value=localStorage.getItem("tbakey")||"";
+  <h2>FRC Scouting</h2>
 
-async function tba(p){
-  const r=await fetch(TBA+p,{headers:{"X-TBA-Auth-Key":$("key").value.trim()}});
-  if(r.status===401) throw new Error("TBA rejected the key (401)");
-  return r.ok?r.json():null;
-}
-function oprs(k){
-  if(!(k in cache)) cache[k]=tba("/event/"+k+"/oprs").then(d=>(d&&d.oprs)||{}).catch(()=>({}));
-  return cache[k];
-}
-function pickEpa(j){
-  if(Array.isArray(j)) j=j[0];
-  if(Array.isArray(j&&j.results)) j=j.results[0];
-  const e=(j&&j.epa)||{};
-  const cands=[
-    e.total_points&&e.total_points.mean,
-    e.total_points&&e.total_points.value,
-    typeof e.total_points==="number"?e.total_points:null,
-    e.stats&&e.stats.end,
-    e.stats&&e.stats.pre_champs,
-    j&&j.epa_end,
-    j&&j.epa_mean
-  ];
-  for(const c of cands) if(typeof c==="number") return r2(c);
-  return "";
-}
-function epaUrls(team,year,evKey){
-  const u=[[ "season lookup", `${SB}/team_year/${team}/${year}` ]];           // 1st: original method
-  if(evKey) u.push([ "last-event lookup", `${SB}/team_event/${team}/${evKey}` ]); // 2nd: last regular-season event
-  u.push([ "team_years lookup", `${SB}/team_years?team=${team}&year=${year}` ]);     // 3rd: backup
-  if(evKey) u.push([ "event-list lookup", `${SB}/team_events?event=${evKey}&limit=1000`, "list" ]); // 4th: whole event, pick the team out
-  if(evKey) u.push([ "event lookup", `${SB}/event/${evKey}`, "list" ]); // 5th: single-event lookup, search inside it for the team
-  return u;
-}
+  <!-- Top Navigation Tabs -->
+  <nav id="tabs">
+    <button class="active" onclick="switchTab('data')">Data</button>
+    <button onclick="switchTab('analyze')">Video Analyzing</button>
+    <button onclick="switchTab('reports')">Saved Reports (<span id="rep-count">0</span>)</button>
+  </nav>
 
-// Search any JSON shape for an object that belongs to this team and carries an EPA
-function findTeamEntry(root,team){
-  const want=String(team);
-  const stack=[root];
-  while(stack.length){
-    const x=stack.pop();
-    if(x&&typeof x==="object"){
-      if(!Array.isArray(x)){
-        const id=x.team??x.team_number??x.team_key??x.number;
-        if(id!=null&&String(id).replace("frc","")===want&&pickEpa(x)!=="") return x;
+  <!-- ==================== TAB 1: DATA ==================== -->
+  <div id="view-data">
+    <div style="margin-bottom: 8px;">
+      <input id="key" placeholder="TBA API key" size="42">
+      <span style="font-size: 11px; color: #666; margin-left: 8px;">(saved in browser)</span>
+    </div>
+
+    <div style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+      <input id="src" placeholder="Event name, event link, event key, or team number(s), e.g. 3061" style="width: 480px;">
+      <input id="years" placeholder="Year(s), e.g. 2016 or 2022-2026" style="width: 180px;">
+      <button id="go" style="font-weight: bold; padding: 5px 14px;">Load data</button>
+    </div>
+
+    <div style="margin-bottom: 8px; display: flex; gap: 6px; align-items: center;">
+      <button id="copy">Copy data</button>
+      <button onclick="debugEpa()">Debug EPA</button>
+    </div>
+
+    <div id="status" style="margin: 8px 0; font-size: 13px;"></div>
+    <pre id="dbg" style="display: none; white-space: pre-wrap; font-size: 12px; background: #f4f4f4; border: 1px solid #ddd; padding: 8px; max-height: 250px; overflow-y: auto;"></pre>
+    <table id="t"></table>
+  </div>
+
+  <!-- ==================== TAB 2: VIDEO ANALYZING ==================== -->
+  <div id="view-analyze" style="display: none;">
+    <h3>Match videos & Video Analyzing</h3>
+
+    <!-- Supabase Endpoint config (for secure Gemini key) -->
+    <div style="margin-bottom: 8px; padding: 6px 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+      <b>Supabase Function URL:</b>
+      <input id="supa-url" placeholder="https://<your-project>.supabase.co/functions/v1/analyze-video" style="width: 450px; font-size: 12px; margin-left: 4px;">
+      <span style="color: #666; margin-left: 6px;">(keeps your Gemini key 100% private)</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px;">
+      <input id="vteam" placeholder="Team number, e.g. 3061" style="width: 180px;">
+      <input id="vyears" placeholder="Year(s), e.g. 2026 or 2024-2026" style="width: 220px;">
+      <label style="font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+        <input type="checkbox" id="vonly" checked> Only matches that have a video
+      </label>
+      <button id="vgo" style="font-weight: 600; padding: 5px 12px;">Show match videos</button>
+    </div>
+
+    <div id="vstatus" style="margin: 6px 0; font-size: 13px;"></div>
+    <table id="vt"></table>
+  </div>
+
+  <!-- ==================== TAB 3: SAVED REPORTS ==================== -->
+  <div id="view-reports" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <h3 style="margin: 0;">Saved AI Scouting Reports</h3>
+      <button onclick="clearReports()" style="font-size: 12px;">Clear all reports</button>
+    </div>
+    <div id="reports-list"></div>
+  </div>
+
+  <script>
+    const TBA = "https://www.thebluealliance.com/api/v3", SB = "https://api.statbotics.io/v3";
+    const H = ["Team","Year","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
+    let rows = [], cache = {}, sortCol = 2, asc = false;
+    let savedReports = JSON.parse(localStorage.getItem("scout_reports") || "[]");
+
+    const $ = id => document.getElementById(id);
+    const r2 = x => Math.round(x * 100) / 100;
+
+    // Load saved settings
+    $("key").value = localStorage.getItem("tbakey") || "";
+    $("supa-url").value = localStorage.getItem("supa_url") || "";
+    updateRepCount();
+
+    function switchTab(tab) {
+      ["data", "analyze", "reports"].forEach(t => {
+        $("view-" + t).style.display = (t === tab) ? "block" : "none";
+      });
+      document.querySelectorAll("nav#tabs button").forEach((b, idx) => {
+        b.className = (["data", "analyze", "reports"][idx] === tab) ? "active" : "";
+      });
+      if (tab === "reports") renderReports();
+    }
+
+    function updateRepCount() {
+      $("rep-count").textContent = savedReports.length;
+    }
+
+    async function tba(p) {
+      const k = $("key").value.trim();
+      const headers = k ? { "X-TBA-Auth-Key": k } : {};
+      const r = await fetch(TBA + p, { headers });
+      if (r.status === 401) throw new Error("TBA rejected key (401)");
+      return r.ok ? r.json() : null;
+    }
+
+    function oprs(k) {
+      if (!(k in cache)) cache[k] = tba("/event/" + k + "/oprs").then(d => (d && d.oprs) || {}).catch(() => ({}));
+      return cache[k];
+    }
+
+    function pickEpa(j) {
+      if (Array.isArray(j)) j = j[0];
+      if (Array.isArray(j && j.results)) j = j.results[0];
+      const e = (j && j.epa) || {};
+      const cands = [e.total_points && e.total_points.mean, e.total_points && e.total_points.value, typeof e.total_points === "number" ? e.total_points : null, e.stats && e.stats.end, e.stats && e.stats.pre_champs, j && j.epa_end, j && j.epa_mean];
+      for (const c of cands) if (typeof c === "number") return r2(c);
+      return "";
+    }
+
+    function epaUrls(team, year, evKey) {
+      const u = [["season lookup", `${SB}/team_year/${team}/${year}`]];
+      if (evKey) u.push(["last-event lookup", `${SB}/team_event/${team}/${evKey}`]);
+      u.push(["team_years lookup", `${SB}/team_years?team=${team}&year=${year}`]);
+      if (evKey) u.push(["event-list lookup", `${SB}/team_events?event=${evKey}&limit=1000`, "list"]);
+      if (evKey) u.push(["event lookup", `${SB}/event/${evKey}`, "list"]);
+      return u;
+    }
+
+    function findTeamEntry(root, team) {
+      const want = String(team);
+      const stack = [root];
+      while (stack.length) {
+        const x = stack.pop();
+        if (x && typeof x === "object") {
+          if (!Array.isArray(x)) {
+            const id = x.team ?? x.team_number ?? x.team_key ?? x.number;
+            if (id != null && String(id).replace("frc", "") === want && pickEpa(x) !== "") return x;
+          }
+          for (const k in x) stack.push(x[k]);
+        }
       }
-      for(const k in x) stack.push(x[k]);
+      return null;
     }
-  }
-  return null;
-}
-const evListCache={};
-async function epa(team,year,evKey){
-  const errs=[];
-  for(const [label,u,kind] of epaUrls(team,year,evKey)){
-    try{
-      let j;
-      if(kind==="list"){
-        if(!(u in evListCache)) evListCache[u]=fetch(u).then(r=>r.ok?r.json():Promise.reject(new Error("HTTP "+r.status)));
-        j=await evListCache[u];
-        j=findTeamEntry(j,team);
-        if(!j){ errs.push(label+": team not found in response"); continue; }
-      }else{
-        const r=await fetch(u);
-        if(!r.ok){ errs.push(label+": HTTP "+r.status); continue; }
-        j=await r.json();
-      }
-      const v=pickEpa(j);
-      if(v!=="") return v;
-      errs.push(label+": no EPA in response");
-    }catch(x){
-      delete evListCache[u];
-      errs.push(label+": "+(String(x.message).startsWith("HTTP")?x.message:"blocked/unreachable"));
-    }
-  }
-  epaErr="EPA failed for team "+team+" ("+year+"), all methods failed: "+errs.join("; ")+" (click Debug EPA)";
-  return "";
-}
-async function debugEpa(){
-  const team=(($("src").value.match(/\b\d{1,5}\b/)||[3061])[0]);
-  const year=parseYears($("years").value)[0]||2026;
-  let out="Testing Statbotics for team "+team+", year "+year+"\n";
-  let evKey="";
-  try{
-    const ev=(await tba(`/team/frc${team}/events/${year}/simple`))||[];
-    ev.sort((a,b)=>(a.start_date||"").localeCompare(b.start_date||""));
-    const today=new Date().toISOString().slice(0,10);
-    const real=ev.filter(e=>[0,1,2,3,4,5].includes(e.event_type)&&(e.end_date||"9999")<=today);
-    evKey=real.length?real[real.length-1].key:"";
-    out+="Last real (non-offseason) event per TBA: "+(evKey||"none found")+"\n";
-  }catch(x){ out+="Could not read TBA events: "+x.message+"\n"; }
-  for(const [label,u] of epaUrls(team,year,evKey)){
-    out+="\n"+label+": "+u+"\n";
-    try{
-      const r=await fetch(u);
-      const t=await r.text();
-      out+="HTTP "+r.status+"\n"+t.slice(0,1500)+"\n";
-    }catch(x){ out+="Failed: "+x.message+"\n"; }
-  }
-  $("dbg").textContent=out;
-}
-function combine(a){
-  if(!a.length) return "";
-  if(RULE==="max") return r2(Math.max(...a));
-  if(RULE==="mean") return r2(a.reduce((s,x)=>s+x,0)/a.length);
-  return r2(a[a.length-1]);
-}
-async function one(t,year){
-  const team=t.num;
-  const ev=(await tba(`/team/frc${team}/events/${year}`))||[];
-  ev.sort((a,b)=>(a.start_date||"").localeCompare(b.start_date||""));
-  const today=new Date().toISOString().slice(0,10);
-  const wk=Array.from({length:8},()=>[]); let worlds="", off=[];
-  for(const e of ev){
-    if((e.end_date||"9999")>today) continue; // skip events not finished yet
-    const o=(await oprs(e.key))["frc"+team];
-    if(o==null) continue;
-    if(e.event_type===99) off.push(r2(o));
-    else if(e.event_type===3) worlds=r2(o);
-    else if([0,1,2,5].includes(e.event_type)&&e.week!=null){
-      const w=e.week+1; if(w>=1&&w<=7) wk[w].push(o);
-    }
-  }
-  const real=ev.filter(e=>[0,1,2,3,4,5].includes(e.event_type)&&(e.end_date||"9999")<=today);
-  const evKey=real.length?real[real.length-1].key:"";
-  const row=[team+(t.name?" - "+t.name:""), year, await epa(team,year,evKey)];
-  for(let w=1;w<=7;w++) row.push(combine(wk[w]));
-  row.push(worlds);
-  for(let i=0;i<5;i++) row.push(i<off.length?off[i]:"");
-  return row;
-}
-// "2026", "2024, 2026", "2022-2026"
-function parseYears(txt){
-  const out=new Set();
-  for(const part of txt.split(/[,\s]+/).filter(Boolean)){
-    const m=part.match(/^(\d{4})-(\d{4})$/);
-    if(m){ let a=+m[1], b=+m[2]; if(a>b)[a,b]=[b,a]; for(let y=a;y<=b&&y-a<30;y++) out.add(y); }
-    else if(/^\d{4}$/.test(part)) out.add(+part);
-  }
-  return [...out];
-}
-async function teamsFromEvent(key){
-  const teams=await tba(`/event/${key}/teams/simple`);
-  if(!teams||!teams.length) throw new Error(`The Blue Alliance has no team list for ${key} (it may not be uploaded yet)`);
-  return teams.map(t=>({num:t.team_number,name:t.nickname})).sort((a,b)=>a.num-b.num);
-}
-// Turn the input box into a list of {num, name}. rosterYear is used when searching by event name.
-async function resolveTeams(input,rosterYear){
-  input=input.trim();
-  if(!input) throw new Error("Enter an event name, event link, or team number(s)");
-  // 1. only numbers/commas -> team numbers
-  if(/^[\d,\s]+$/.test(input)){
-    const nums=[...new Set((input.match(/\d+/g)||[]).map(Number))];
-    const out=[];
-    for(const n of nums){
-      const s=await tba(`/team/frc${n}/simple`);
-      out.push({num:n,name:s?s.nickname:""});
-    }
-    return out;
-  }
-  // 2. FIRST or TBA link
-  let m=input.match(/frc-events\.firstinspires\.org\/(\d{4})\/([A-Za-z0-9]+)/i);
-  if(m) return teamsFromEvent(m[1]+m[2].toLowerCase());
-  m=input.match(/thebluealliance\.com\/event\/(\d{4}[A-Za-z0-9]+)/i);
-  if(m) return teamsFromEvent(m[1].toLowerCase());
-  // 3. event key like 2026wimil
-  if(/^\d{4}(?=[a-z0-9]*[a-z])[a-z0-9]+$/i.test(input)) return teamsFromEvent(input.toLowerCase());
-  // 4. event name search in the roster year
-  const evs=(await tba(`/events/${rosterYear}/simple`))||[];
-  const words=input.toLowerCase().split(/\s+/);
-  const hits=evs.filter(e=>words.every(w=>(e.name+" "+e.key).toLowerCase().includes(w)));
-  if(!hits.length) throw new Error(`No ${rosterYear} event found matching "${input}"`);
-  let pick=hits.length===1?hits[0]:hits.find(e=>e.name.toLowerCase()===input.toLowerCase());
-  if(!pick){
-    const list=hits.slice(0,8).map(e=>`${e.name} (${e.key})`).join("; ");
-    throw new Error(`${hits.length} events match. Be more specific or type the event key. Matches: ${list}`);
-  }
-  $("status").textContent="Using event: "+pick.name+" ("+pick.key+")";
-  return teamsFromEvent(pick.key);
-}
-$("go").onclick=async()=>{
-  localStorage.setItem("tbakey",$("key").value.trim());
-  rows=[]; cache={}; epaErr=""; render();
-  try{
-    const years=parseYears($("years").value);
-    if(!years.length) throw new Error("Enter at least one year, like 2026");
-    multiYear=years.length>1;
-    $("status").textContent="Finding teams...";
-    const teams=await resolveTeams($("src").value,years[0]);
-    const tasks=[];
-    for(const t of teams) for(const y of years) tasks.push([t,y]);
-    for(let i=0;i<tasks.length;i+=5){
-      $("status").textContent=`Loading ${Math.min(i+5,tasks.length)}/${tasks.length}...`;
-      rows.push(...await Promise.all(tasks.slice(i,i+5).map(([t,y])=>one(t,y))));
-    }
-    $("status").textContent="Done."+(epaErr?" EPA problem: "+epaErr:"");
-  }catch(e){ $("status").textContent="Error: "+e.message; }
-  render();
-};
-function render(){
-  let v=rows;
-  if(sortCol>=0) v=[...v].sort((a,b)=>{
-    const x=a[sortCol], y=b[sortCol];
-    if(x===""&&y==="") return 0; if(x==="") return 1; if(y==="") return -1;
-    const c=(typeof x==="number")?x-y:String(x).localeCompare(String(y));
-    return asc?c:-c;
-  });
-  const cell=(c,i)=>{
-    if(i===0){
-      const m=String(c).match(/^(\d+)(?: - (.*))?$/);
-      return m?`<td><b class="n">${m[1]}</b>${esc(m[2]||"")}</td>`:`<td>${esc(c)}</td>`;
-    }
-    return `<td${i===2?' class="epa"':""}>${esc(c)}</td>`;
-  };
-  $("t").innerHTML=rows.length?("<tr>"+H.map((h,i)=>`<th class="${i===sortCol?"sorted "+(asc?"asc":"desc"):""}" onclick="sortBy(${i})">${h}</th>`).join("")+"</tr>"
-    +v.map(r=>"<tr>"+r.map(cell).join("")+"</tr>").join("")):"";
-}
-function sortBy(i){ asc=(sortCol===i)?!asc:true; sortCol=i; render(); }
-$("copy").onclick=async()=>{
-  if(!rows.length){ $("status").textContent="Nothing to copy yet. Load data first."; return; }
-  // one year: data columns only (paste at B2). several years: Year column is included.
-  const cut=multiYear?1:2;
-  const text=rows.map(r=>r.slice(cut).join("\t")).join("\n");
-  try{
-    await navigator.clipboard.writeText(text);
-  }catch(e){
-    const ta=document.createElement("textarea");
-    ta.value=text; document.body.appendChild(ta); ta.select();
-    let ok=false;
-    try{ ok=document.execCommand("copy"); }catch(x){}
-    document.body.removeChild(ta);
-    if(!ok){ $("status").textContent="Copy was blocked by your browser. Select the table and copy it manually."; return; }
-  }
-  $("status").textContent="Copied! Paste into cell B2 of your sheet."+(multiYear?" (Year column is included since you loaded several years.)":"");
-};
 
-// ---- Match videos for one team ----
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-function matchLabel(m){
-  const L={qm:"Qualification",ef:"Eighthfinal",qf:"Quarterfinal",sf:"Semifinal",f:"Final"};
-  const n=L[m.comp_level]||m.comp_level;
-  return m.comp_level==="qm"?`${n} ${m.match_number}`:`${n} ${m.set_number}-${m.match_number}`;
-}
-$("vgo").onclick=async()=>{
-  localStorage.setItem("tbakey",$("key").value.trim());
-  $("vt").innerHTML="";
-  const num=($("vteam").value.match(/\d+/)||[])[0];
-  const years=parseYears($("vyears").value);
-  if(!num){ $("vstatus").textContent="Enter a team number."; return; }
-  if(!years.length){ $("vstatus").textContent="Enter at least one year."; return; }
-  const onlyVideo=$("vonly").checked;
-  const me="frc"+num;
-  const out=[];
-  try{
-    for(const y of years){
-      $("vstatus").textContent=`Loading ${y}...`;
-      const evs=(await tba(`/team/${me}/events/${y}/simple`))||[];
-      const evMap={}; evs.forEach(e=>evMap[e.key]=e);
-      const ms=(await tba(`/team/${me}/matches/${y}`))||[];
-      for(const m of ms){
-        const vids=(m.videos||[]).filter(v=>v.type==="youtube");
-        if(onlyVideo&&!vids.length) continue;
-        const color=(m.alliances.red.team_keys.includes(me))?"red":"blue";
-        const opp=color==="red"?"blue":"red";
-        const mine=m.alliances[color].score, theirs=m.alliances[opp].score;
-        let result="";
-        if(mine>=0&&theirs>=0) result=mine>theirs?"Win":(mine<theirs?"Loss":"Tie");
-        const ev=evMap[m.event_key]||{};
-        out.push({y, ev:ev.name||m.event_key, start:ev.start_date||"", t:m.time||0,
-          label:matchLabel(m), color, score:(mine>=0?mine+" - "+theirs:""), result, vids});
+    async function epa(team, year, evKey) {
+      for (const [label, u, kind] of epaUrls(team, year, evKey)) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3500);
+          const r = await fetch(u, { signal: controller.signal });
+          clearTimeout(timer);
+          if (!r.ok) continue;
+          let j = await r.json();
+          if (kind === "list") j = findTeamEntry(j, team);
+          const v = pickEpa(j);
+          if (v !== "") return v;
+        } catch (e) {}
+      }
+      return "";
+    }
+
+    async function debugEpa() {
+      const team = ($("src").value.match(/\b\d{1,5}\b/) || [3061])[0];
+      const year = parseYears($("years").value || "2026")[0] || 2026;
+      $("dbg").style.display = "block";
+      let out = `Testing Statbotics for team ${team}, year ${year}\n`;
+      let evKey = "";
+      try {
+        const ev = (await tba(`/team/frc${team}/events/${year}/simple`)) || [];
+        ev.sort((a,b) => (a.start_date||"").localeCompare(b.start_date||""));
+        const today = new Date().toISOString().slice(0, 10);
+        const real = ev.filter(e => [0,1,2,3,4,5].includes(e.event_type) && (e.end_date||"9999") <= today);
+        evKey = real.length ? real[real.length - 1].key : "";
+        out += "Last real event per TBA: " + (evKey || "none found") + "\n";
+      } catch (x) { out += "TBA error: " + x.message + "\n"; }
+
+      for (const [label, u] of epaUrls(team, year, evKey)) {
+        out += "\n" + label + ": " + u + "\n";
+        try {
+          const r = await fetch(u);
+          const t = await r.text();
+          out += "HTTP " + r.status + "\n" + t.slice(0, 500) + "\n";
+        } catch (x) { out += "Failed: " + x.message + "\n"; }
+      }
+      $("dbg").textContent = out;
+    }
+
+    async function one(t, year, statboticsState) {
+      const team = t.num;
+      const ev = (await tba(`/team/frc${team}/events/${year}`)) || [];
+      ev.sort((a,b) => (a.start_date||"").localeCompare(b.start_date||""));
+      const today = new Date().toISOString().slice(0, 10);
+      const wk = Array.from({length: 8}, () => []); let worlds = "", off = [];
+
+      for (const e of ev) {
+        if ((e.end_date||"9999") > today) continue;
+        const o = (await oprs(e.key))["frc" + team];
+        if (o == null) continue;
+        const score = r2(o);
+        if (e.event_type === 99) off.push(score);
+        else if (e.event_type === 3) worlds = score;
+        else if ([0,1,2,5].includes(e.event_type) && e.week != null) {
+          const w = e.week + 1;
+          if (w >= 1 && w <= 7) wk[w].push(score);
+        }
+      }
+
+      const real = ev.filter(e => [0,1,2,3,4,5].includes(e.event_type) && (e.end_date||"9999") <= today);
+      const evKey = real.length ? real[real.length - 1].key : "";
+
+      let teamEpa = "";
+      if (!statboticsState.skip) {
+        teamEpa = await epa(team, year, evKey);
+        if (teamEpa === "") {
+          statboticsState.fails++;
+          if (statboticsState.fails >= 2) statboticsState.skip = true;
+        } else {
+          statboticsState.fails = 0;
+        }
+      }
+
+      const row = [team + (t.name ? " - " + t.name : ""), year, teamEpa];
+      for (let w = 1; w <= 7; w++) row.push(wk[w].length ? wk[w][wk[w].length - 1] : "");
+      row.push(worlds);
+      for (let i = 0; i < 5; i++) row.push(i < off.length ? off[i] : "");
+      return row;
+    }
+
+    function parseYears(txt) {
+      const out = new Set();
+      for (const part of (txt||"").split(/[,\s]+/).filter(Boolean)) {
+        const m = part.match(/^(\d{4})-(\d{4})$/);
+        if (m) {
+          let a = +m[1], b = +m[2]; if (a > b) [a, b] = [b, a];
+          for (let y = a; y <= b && y - a < 30; y++) out.add(y);
+        } else if (/^\d{4}$/.test(part)) out.add(+part);
+      }
+      return [...out];
+    }
+
+    async function teamsFromEvent(key) {
+      const teams = await tba(`/event/${key}/teams/simple`);
+      if (!teams || !teams.length) throw new Error(`No teams found for event ${key}`);
+      return teams.map(t => ({ num: t.team_number, name: t.nickname })).sort((a,b) => a.num - b.num);
+    }
+
+    async function resolveTeams(input, rosterYear) {
+      input = input.trim();
+      if (!input) throw new Error("Enter an event name, event link, event key, or team number(s)");
+      if (/^[\d,\s]+$/.test(input)) {
+        const nums = [...new Set((input.match(/\d+/g) || []).map(Number))];
+        const out = [];
+        for (const n of nums) {
+          const s = await tba(`/team/frc${n}/simple`);
+          out.push({ num: n, name: s ? s.nickname : "" });
+        }
+        return out;
+      }
+      let m = input.match(/frc-events\.firstinspires\.org\/(\d{4})\/([A-Za-z0-9]+)/i);
+      if (m) return teamsFromEvent(m[1] + m[2].toLowerCase());
+      m = input.match(/thebluealliance\.com\/event\/(\d{4}[A-Za-z0-9]+)/i);
+      if (m) return teamsFromEvent(m[1].toLowerCase());
+      if (/^\d{4}(?=[a-z0-9]*[a-z])[a-z0-9]+$/i.test(input)) return teamsFromEvent(input.toLowerCase());
+      const evs = (await tba(`/events/${rosterYear}/simple`)) || [];
+      const words = input.toLowerCase().split(/\s+/);
+      const hits = evs.filter(e => words.every(w => (e.name + " " + e.key).toLowerCase().includes(w)));
+      if (!hits.length) throw new Error(`No ${rosterYear} event found matching "${input}"`);
+      const pick = hits.length === 1 ? hits[0] : (hits.find(e => e.name.toLowerCase() === input.toLowerCase()) || hits[0]);
+      $("status").textContent = "Using event: " + pick.name + " (" + pick.key + ")";
+      return teamsFromEvent(pick.key);
+    }
+
+    $("go").onclick = async () => {
+      localStorage.setItem("tbakey", $("key").value.trim());
+      rows = []; cache = {}; render();
+      try {
+        const years = parseYears($("years").value.trim() || "2026");
+        $("status").className = ""; $("status").textContent = "Finding teams...";
+        const teams = await resolveTeams($("src").value, years[0]);
+        const tasks = [];
+        for (const t of teams) for (const y of years) tasks.push([t, y]);
+        const statboticsState = { fails: 0, skip: false };
+        for (let i = 0; i < tasks.length; i += 5) {
+          $("status").textContent = `Loading ${Math.min(i + 5, tasks.length)}/${tasks.length}...`;
+          const chunk = await Promise.all(tasks.slice(i, i + 5).map(([t, y]) => one(t, y, statboticsState)));
+          rows.push(...chunk);
+          render();
+        }
+        $("status").className = "ok"; $("status").textContent = "Done.";
+      } catch (e) {
+        $("status").className = "err"; $("status").textContent = "Error: " + e.message;
+      }
+    };
+
+    function render() {
+      let v = rows;
+      if (sortCol >= 0) {
+        v = [...v].sort((a,b) => {
+          const x = a[sortCol], y = b[sortCol];
+          if (x === "" && y === "") return 0; if (x === "") return 1; if (y === "") return -1;
+          const c = (typeof x === "number") ? x - y : String(x).localeCompare(String(y));
+          return asc ? c : -c;
+        });
+      }
+      const cell = (c, i) => {
+        if (i === 0) {
+          const m = String(c).match(/^(\d+)(?: - (.*))?$/);
+          return m ? `<td><b class="n">${m[1]}</b>${esc(m[2]||"")}</td>` : `<td>${esc(c)}</td>`;
+        }
+        return `<td${i===2 ? ' class="epa"' : ""}>${esc(c)}</td>`;
+      };
+      $("t").innerHTML = rows.length ? ("<tr>" + H.map((h, i) => `<th onclick="sortBy(${i})">${h}${sortCol === i ? (asc ? " ▲" : " ▼") : ""}</th>`).join("") + "</tr>" + v.map(r => "<tr>" + r.map(cell).join("") + "</tr>").join("")) : "";
+    }
+
+    function sortBy(i) { asc = (sortCol === i) ? !asc : (i === 0 || i === 1); sortCol = i; render(); }
+
+    $("copy").onclick = async () => {
+      if (!rows.length) { $("status").className = "err"; $("status").textContent = "Nothing to copy yet. Load data first."; return; }
+      const text = [H.join("\t"), ...rows.map(r => r.join("\t"))].join("\n");
+      try { await navigator.clipboard.writeText(text); }
+      catch (e) {
+        const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+      }
+      $("status").className = "ok"; $("status").textContent = `Copied all data (${rows.length} rows, all columns) to clipboard!`;
+    };
+
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+    function matchLabel(m) {
+      const L = {qm:"Qualification", ef:"Eighthfinal", qf:"Quarterfinal", sf:"Semifinal", f:"Final"};
+      const n = L[m.comp_level] || m.comp_level;
+      return m.comp_level === "qm" ? `${n} ${m.match_number}` : `${n} ${m.set_number}-${m.match_number}`;
+    }
+
+    // ==================== MATCH VIDEOS ====================
+    let videoList = [];
+    $("vgo").onclick = async () => {
+      localStorage.setItem("tbakey", $("key").value.trim());
+      $("vt").innerHTML = ""; videoList = [];
+      const num = ($("vteam").value.match(/\d+/) || [])[0];
+      const years = parseYears($("vyears").value.trim() || "2026");
+      if (!num) { $("vstatus").className = "err"; $("vstatus").textContent = "Enter a team number."; return; }
+      const onlyVideo = $("vonly").checked;
+      const me = "frc" + num;
+      try {
+        $("vstatus").className = ""; $("vstatus").textContent = `Loading match videos for team ${num}...`;
+        for (const y of years) {
+          const evs = (await tba(`/team/${me}/events/${y}/simple`)) || [];
+          const evMap = {}; evs.forEach(e => evMap[e.key] = e);
+          const ms = (await tba(`/team/${me}/matches/${y}`)) || [];
+          for (const m of ms) {
+            const vids = (m.videos || []).filter(v => v.type === "youtube");
+            if (onlyVideo && !vids.length) continue;
+            const color = (m.alliances?.red?.team_keys || []).includes(me) ? "red" : "blue";
+            const opp = color === "red" ? "blue" : "red";
+            const mine = m.alliances?.[color]?.score, theirs = m.alliances?.[opp]?.score;
+            let result = "";
+            if (mine != null && theirs != null && mine >= 0 && theirs >= 0) result = mine > theirs ? "Win" : (mine < theirs ? "Loss" : "Tie");
+            const ev = evMap[m.event_key] || {};
+            const ytKey = vids.length ? vids[0].key : "";
+            videoList.push({ year: y, event: ev.name || m.event_key, label: matchLabel(m), alliance: color, score: (mine >= 0 ? `${mine} - ${theirs}` : ""), result, ytKey, url: ytKey ? `https://www.youtube.com/watch?v=${ytKey}` : "", time: m.time || 0, date: ev.start_date || "" });
+          }
+        }
+        videoList.sort((a,b) => (b.date + ("0000000000" + b.time).slice(-10)).localeCompare(a.date + ("0000000000" + a.time).slice(-10)));
+        if (!videoList.length) {
+          $("vstatus").textContent = `No ${onlyVideo ? "video " : ""}matches found for team ${num}.`;
+        } else {
+          $("vstatus").textContent = `${videoList.length} match(es) for team ${num}. Newest first.`;
+          renderVideoTable(num);
+        }
+      } catch (e) {
+        $("vstatus").className = "err"; $("vstatus").textContent = "Error: " + e.message;
+      }
+    };
+
+    function renderVideoTable(teamNum) {
+      $("vt").innerHTML = "<tr><th>Year</th><th>Event</th><th>Match</th><th>Alliance</th><th>Score</th><th>Result</th><th>Video & Analysis</th></tr>"
+        + videoList.map((m, idx) => `
+          <tr>
+            <td>${m.year}</td><td>${esc(m.event)}</td><td>${esc(m.label)}</td>
+            <td class="${m.alliance}">${m.alliance}</td><td>${m.score}</td>
+            <td class="${m.result === "Win" ? "win" : (m.result === "Loss" ? "loss" : "")}">${m.result}</td>
+            <td>
+              ${m.url ? `
+                <a href="${m.url}" target="_blank" rel="noopener" style="color: #0066cc;">Watch</a>
+                <span style="font-size: 11px; color: #666; margin-left: 6px;">
+                  Clip: <input id="c-st-${idx}" placeholder="start" style="width: 36px; padding: 1px 3px; font-size: 11px;"> - 
+                  <input id="c-en-${idx}" placeholder="end" style="width: 36px; padding: 1px 3px; font-size: 11px;">s
+                </span>
+                <button onclick="analyzeMatch(${idx}, '${teamNum}')" style="margin-left: 6px; font-size: 11px;">Analyze</button>
+                <div id="notes-${idx}" style="display: none; margin-top: 6px; padding: 6px; background: #fafafa; border: 1px solid #ddd; font-size: 12px;"></div>
+              ` : 'no video'}
+            </td>
+          </tr>
+        `).join("");
+    }
+
+    // Call Supabase Edge Function to analyze
+    async function analyzeMatch(idx, teamNum) {
+      const m = videoList[idx];
+      const supaUrl = $("supa-url").value.trim() || localStorage.getItem("supa_url");
+      if (!supaUrl) {
+        alert("Please enter your Supabase Function URL in the box above so the request can analyze the video safely.");
+        $("supa-url").focus();
+        return;
+      }
+      localStorage.setItem("supa_url", supaUrl);
+      const notesEl = $("notes-" + idx);
+      notesEl.style.display = "block";
+      notesEl.innerHTML = "<i>Contacting Supabase Edge Function to analyze video with Gemini...</i>";
+
+      const clipStart = $(`c-st-${idx}`)?.value || "";
+      const clipEnd = $(`c-en-${idx}`)?.value || "";
+
+      try {
+        const res = await fetch(supaUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoUrl: m.url, teamNumber: Number(teamNum), eventName: m.event, matchLabel: m.label, alliance: m.alliance, score: m.score, clipStart, clipEnd, year: m.year
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Analysis failed");
+
+        const rep = data.data || data;
+        rep.team = teamNum; rep.match = m.label; rep.event = m.event; rep.url = m.url; rep.time = new Date().toLocaleTimeString();
+
+        // Save to reports
+        savedReports.unshift(rep);
+        localStorage.setItem("scout_reports", JSON.stringify(savedReports));
+        updateRepCount();
+
+        notesEl.innerHTML = `
+          <b>Tactical Scouting Report:</b><br>
+          ${rep.summary || ""}<br>
+          <b>Auto (${rep.auto?.rating || 7}/10):</b> ${rep.auto?.description || ""}<br>
+          <b>Teleop (${rep.teleop?.rating || 8}/10):</b> ${rep.teleop?.description || ""}<br>
+          <b>Endgame (${rep.endgame?.rating || 7}/10):</b> ${rep.endgame?.description || ""}<br>
+          <b>Alliance Verdict:</b> ${rep.alliancePickRecommendation || "Recommended partner."}
+        `;
+      } catch (err) {
+        notesEl.innerHTML = `<span style="color: #b00;"><b>Error:</b> ${err.message}</span>`;
       }
     }
-    out.sort((a,b)=>(b.start+("0000000000"+b.t).slice(-10)).localeCompare(a.start+("0000000000"+a.t).slice(-10)));
-    if(!out.length){
-      $("vstatus").textContent=`No ${onlyVideo?"video ":""}matches found for team ${num} in ${years.join(", ")}.`+(onlyVideo?" Try unchecking the box to see all matches.":"");
-      return;
-    }
-    $("vstatus").textContent=`${out.length} match(es) for team ${num}. Newest first.`;
-    $("vt").innerHTML='<tr><th class="l">Year</th><th class="l">Event</th><th class="l">Match</th><th class="l">Alliance</th><th>Score (team - opp.)</th><th class="l">Result</th><th class="l">Video</th></tr>'
-      +out.map(r=>`<tr><td>${r.y}</td><td class="l">${esc(r.ev)}</td><td class="l">${esc(r.label)}</td><td class="l ${r.color}">${r.color}</td><td>${r.score}</td><td class="l ${r.result==="Win"?"win":(r.result==="Loss"?"loss":"")}">${r.result}</td><td class="l">`
-        +(r.vids.length?r.vids.map((v,i)=>`<a href="https://www.youtube.com/watch?v=${encodeURIComponent(v.key)}" target="_blank" rel="noopener">Watch${r.vids.length>1?" "+(i+1):""}</a>`).join(" &nbsp; "):"no video")
-        +`</td></tr>`).join("");
-  }catch(e){ $("vstatus").textContent="Error: "+e.message; }
-};
 
-// top-bar tabs
-document.querySelectorAll(".top nav a").forEach(a=>a.onclick=()=>{
-  document.querySelectorAll(".top nav a").forEach(x=>x.classList.toggle("on",x===a));
-  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on",v.id==="view-"+a.dataset.view));
-});
-// red text for errors, green when finished
-function watchStatus(id){
-  const el=$(id);
-  new MutationObserver(()=>{
-    const t=el.textContent;
-    el.classList.toggle("err",/^Error|problem|failed|No .* found|Nothing to copy|Enter /i.test(t));
-    el.classList.toggle("ok",/^Done\.$|^Copied!/.test(t));
-  }).observe(el,{childList:true,characterData:true,subtree:true});
-}
-watchStatus("status"); watchStatus("vstatus");
-</script></body></html>
+    function renderReports() {
+      const list = $("reports-list");
+      if (!savedReports.length) {
+        list.innerHTML = "<div style='padding: 20px; border: 1px solid #ccc; background: #fafafa; text-align: center; color: #666;'>No saved reports yet. Go to Video Analyzing and click Analyze next to any match.</div>";
+        return;
+      }
+      list.innerHTML = savedReports.map((r, i) => `
+        <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; background: #fff; font-size: 12px;">
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 4px; margin-bottom: 6px;">
+            <b>Team ${r.team} — ${r.match} (${r.event})</b>
+            <span style="color: #666;">${r.time}</span>
+          </div>
+          <div><b>Summary:</b> ${r.summary || ""}</div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px; margin: 6px 0;">
+            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Auto (${r.auto?.rating || 7}/10):</b> ${r.auto?.description || ""}</div>
+            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Teleop (${r.teleop?.rating || 8}/10):</b> ${r.teleop?.description || ""}</div>
+            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Endgame (${r.endgame?.rating || 7}/10):</b> ${r.endgame?.description || ""}</div>
+          </div>
+          <div><b>Alliance Verdict:</b> ${r.alliancePickRecommendation || ""}</div>
+        </div>
+      `).join("");
+    }
+
+    function clearReports() {
+      if (confirm("Clear all saved reports?")) {
+        savedReports = [];
+        localStorage.removeItem("scout_reports");
+        updateRepCount();
+        renderReports();
+      }
+    }
+  </script>
+</body>
+</html>
