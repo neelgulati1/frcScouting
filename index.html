@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FRC Scouting & AI Tactical Video Analyzer</title>
+  <title>FRC Scouting</title>
   <style>
     body {
       font-family: sans-serif;
@@ -89,7 +89,7 @@
   <!-- React & ReactDOM -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- Babel for running in-browser -->
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -202,7 +202,7 @@
       const [tbaKey, setTbaKey] = useState(() => localStorage.getItem('tbakey') || '');
       const [functionUrl, setFunctionUrl] = useState(() => localStorage.getItem('supabase_function_url') || DEFAULT_SUPABASE_URL);
 
-      // Tab 1: Data / Matrix (OPR/EPA untouched)
+      // Tab 1: Data / Matrix
       const [sourceInput, setSourceInput] = useState('');
       const [yearsInput, setYearsInput] = useState('');
       const [matrixRows, setMatrixRows] = useState([]);
@@ -217,7 +217,7 @@
       const [debugOutput, setDebugOutput] = useState('');
       const [loadingDebug, setLoadingDebug] = useState(false);
 
-      // Tab 2: Video Analyzing (blank defaults)
+      // Tab 2: Video Analyzing
       const [vTeam, setVTeam] = useState('');
       const [vYears, setVYears] = useState('');
       const [vOnlyVideo, setVOnlyVideo] = useState(true);
@@ -454,7 +454,7 @@
         }
       };
 
-      // Tab 2: Show Match Videos (Sorted newest to oldest)
+      // Tab 2: Show Match Videos
       const handleShowMatchVideos = async () => {
         const teamNum = parseInt(vTeam.trim(), 10);
         if (isNaN(teamNum)) {
@@ -502,6 +502,7 @@
 
                 if (vOnlyVideo && !videoUrl) continue;
 
+                // Driver station slot & barcode
                 const slot = isRed ? redKeys.indexOf(myKey) + 1 : blueKeys.indexOf(myKey) + 1;
                 const stationName = `${alliance.toUpperCase()} ${slot}`;
 
@@ -563,7 +564,6 @@
             }
           }
 
-          // Sort matches from most recent to oldest
           allMatches.sort((a, b) => {
             const timeA = String(a.startDate || '') + String(a.time || 0).padStart(10, '0');
             const timeB = String(b.startDate || '') + String(b.time || 0).padStart(10, '0');
@@ -692,18 +692,8 @@
       return (
         <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <div style={{ marginBottom: '10px' }}>
             <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>FRC Scouting</h2>
-            <div style={{ fontSize: '12px', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>Edge Function:</span>
-              <input
-                className="input-txt"
-                value={functionUrl}
-                onChange={(e) => setFunctionUrl(e.target.value)}
-                style={{ width: '280px', fontSize: '11px', padding: '2px 6px' }}
-                title="Supabase Edge Function endpoint"
-              />
-            </div>
           </div>
 
           {/* Navigation Tabs */}
@@ -906,7 +896,7 @@
                 </div>
               )}
 
-              {/* Tactical Analysis Result Banner */}
+              {/* Analysis Result Banner */}
               {activeAnalysisView && analysisResults[activeAnalysisView] && (
                 <div className="card" style={{ border: '2px solid #2563eb', background: '#f8fafc', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
@@ -1152,7 +1142,7 @@
                             className="btn"
                             style={{ padding: '2px 8px', fontSize: '12px' }}
                             onClick={() => {
-                              const text = `Tactical Scouting Report: Team ${rep.teamNumber} (${rep.matchLabel})\nSummary: ${rep.summary}\nAuto: ${rep.auto?.exactAuto || rep.auto?.description}\nTransition: ${rep.transitionPeriod?.description}\nTeleop Inactive: ${rep.teleop?.inactiveNotes}\nTeleop Active: ${rep.teleop?.activeNotes}\nEndgame: ${rep.endgame?.description}\nVerdict: ${rep.allianceSelectionVerdict || rep.strategicRecommendation}`;
+                              const text = `Tactical Scouting Report: Team ${rep.teamNumber} (${rep.matchLabel})\nSummary: ${rep.summary}\nAuto: ${rep.auto?.description}\nTeleop: ${rep.teleop?.description}\nEndgame: ${rep.endgame?.description}\nVerdict: ${rep.allianceSelectionVerdict || rep.strategicRecommendation}`;
                               navigator.clipboard.writeText(text);
                               alert('Report copied to clipboard!');
                             }}
