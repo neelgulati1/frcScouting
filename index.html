@@ -1,777 +1,496 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FRC Scouting & AI Video Analyzer</title>
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            frcBlue: '#2563eb',
-            frcRed: '#dc2626',
-          }
-        }
-      }
-    }
-  </script>
-  <!-- React 18, ReactDOM, & Babel -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <meta charset="utf-8">
+  <title>FRC Scouting & Video Analyzer</title>
   <style>
-    body { background-color: #0b0f19; color: #f3f4f6; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #111827; }
-    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+    body { font-family: sans-serif; margin: 16px; color: #222; max-width: 1360px; }
+    h2 { margin: 0 0 10px 0; font-size: 24px; font-weight: bold; }
+    h3 { margin: 0 0 10px 0; font-size: 18px; font-weight: bold; }
+    nav { border-bottom: 1px solid #ccc; margin-bottom: 14px; display: flex; gap: 4px; }
+    nav button { padding: 6px 16px; cursor: pointer; border: 1px solid #ccc; background-color: #eee; font-size: 13px; border-radius: 3px 3px 0 0; margin-bottom: -1px; }
+    nav button.active { background-color: #fff; border-bottom: 1px solid #fff; font-weight: bold; }
+    table { border-collapse: collapse; margin-top: 10px; width: 100%; font-size: 13px; }
+    td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: right; }
+    td:first-child, th:first-child { text-align: left; }
+    th { cursor: pointer; background: #eee; user-select: none; white-space: nowrap; }
+    th.l, td.l { text-align: left; }
+    input { margin: 2px 0; padding: 4px 8px; border: 1px solid #ccc; border-radius: 2px; font-size: 13px; }
+    button { padding: 4px 10px; margin: 2px 0; border: 1px solid #bbb; background: #f0f0f0; cursor: pointer; border-radius: 3px; font-size: 13px; }
+    button:hover { background: #e4e4e4; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .err { color: #b00; font-weight: bold; }
+    .ok { color: #070; font-weight: bold; }
+    td b.n { margin-right: 8px; }
+    .red { color: #c00; font-weight: bold; }
+    .blue { color: #0066cc; font-weight: bold; }
+    .win { color: #070; font-weight: bold; }
+    .loss { color: #c00; }
+    .epa { background-color: #f5f9ff; font-weight: bold; }
   </style>
 </head>
 <body>
-  <div id="root"></div>
 
-  <script type="text/babel">
-    const { useState, useEffect } = React;
+  <h2>FRC Scouting</h2>
 
-    const DEFAULT_SUPABASE_URL = "https://hiidxcirfnetdaagfsuh.supabase.co/functions/v1/analyze-video";
+  <!-- Top Navigation Tabs -->
+  <nav id="tabs">
+    <button class="active" onclick="switchTab('data')">Data</button>
+    <button onclick="switchTab('analyze')">Video Analyzing</button>
+    <button onclick="switchTab('reports')">Saved Reports (<span id="rep-count">0</span>)</button>
+  </nav>
 
-    function App() {
-      // Configuration & Keys
-      const [tbaKey, setTbaKey] = useState(() => localStorage.getItem('frc_tba_key') || '');
-      const [functionUrl, setFunctionUrl] = useState(() => localStorage.getItem('frc_function_url') || DEFAULT_SUPABASE_URL);
-      const [showSettings, setShowSettings] = useState(false);
+  <!-- ==================== TAB 1: DATA ==================== -->
+  <div id="view-data">
+    <div style="margin-bottom: 8px;">
+      <input id="key" placeholder="TBA API key" size="42">
+      <span style="font-size: 11px; color: #666; margin-left: 8px;">(saved in browser)</span>
+    </div>
 
-      // Search filters
-      const [teamNumber, setTeamNumber] = useState('3061');
-      const [year, setYear] = useState('2024');
-      const [activeTab, setActiveTab] = useState('matches'); // 'matches' | 'reports'
+    <div style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+      <input id="src" placeholder="Event name, event link, event key, or team number(s), e.g. 3061" style="width: 480px;">
+      <input id="years" placeholder="Year(s), e.g. 2016 or 2022-2026" style="width: 180px;">
+      <button id="go" style="font-weight: bold; padding: 5px 14px;">Load data</button>
+    </div>
 
-      // Data state
-      const [teamInfo, setTeamInfo] = useState(null);
-      const [events, setEvents] = useState([]);
-      const [selectedEventKey, setSelectedEventKey] = useState('');
-      const [matches, setMatches] = useState([]);
-      const [loading, setLoading] = useState(false);
-      const [error, setError] = useState('');
+    <div style="margin-bottom: 8px; display: flex; gap: 6px; align-items: center;">
+      <button id="copy">Copy data</button>
+      <button onclick="debugEpa()">Debug EPA</button>
+    </div>
 
-      // Analysis & Player state
-      const [analyzingMatchKey, setAnalyzingMatchKey] = useState(null);
-      const [activeAnalysis, setActiveAnalysis] = useState(null);
-      const [selectedMatchForPlayer, setSelectedMatchForPlayer] = useState(null);
+    <div id="status" style="margin: 8px 0; font-size: 13px;"></div>
+    <pre id="dbg" style="display: none; white-space: pre-wrap; font-size: 12px; background: #f4f4f4; border: 1px solid #ddd; padding: 8px; max-height: 250px; overflow-y: auto;"></pre>
+    <table id="t"></table>
+  </div>
 
-      // Saved Reports in localStorage
-      const [savedReports, setSavedReports] = useState(() => {
-        try {
-          return JSON.parse(localStorage.getItem('frc_saved_reports') || '[]');
-        } catch {
-          return [];
-        }
+  <!-- ==================== TAB 2: VIDEO ANALYZING ==================== -->
+  <div id="view-analyze" style="display: none;">
+    <h3>Match videos & Video Analyzing</h3>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px;">
+      <input id="vteam" placeholder="Team number, e.g. 3061" style="width: 180px;">
+      <input id="vyears" placeholder="Year(s), e.g. 2026 or 2024-2026" style="width: 220px;">
+      <label style="font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+        <input type="checkbox" id="vonly" checked> Only matches that have a video
+      </label>
+      <button id="vgo" style="font-weight: 600; padding: 5px 12px;">Show match videos</button>
+    </div>
+
+    <div id="vstatus" style="margin: 6px 0; font-size: 13px;"></div>
+    <table id="vt"></table>
+  </div>
+
+  <!-- ==================== TAB 3: SAVED REPORTS ==================== -->
+  <div id="view-reports" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <h3 style="margin: 0;">Saved AI Scouting Reports</h3>
+      <button onclick="clearReports()" style="font-size: 12px;">Clear all reports</button>
+    </div>
+    <div id="reports-list"></div>
+  </div>
+
+  <script>
+    // Built-in Supabase Edge Function URL (keeps your GEMINI_API_KEY private inside Supabase)
+    const SUPABASE_URL = "https://hiidxcirfnetdaagfsuh.supabase.co/functions/v1/analyze-video";
+
+    const TBA = "https://www.thebluealliance.com/api/v3", SB = "https://api.statbotics.io/v3";
+    const H = ["Team","Year","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
+    let rows = [], cache = {}, sortCol = 2, asc = false;
+    let savedReports = JSON.parse(localStorage.getItem("scout_reports") || "[]");
+
+    const $ = id => document.getElementById(id);
+    const r2 = x => Math.round(x * 100) / 100;
+
+    $("key").value = localStorage.getItem("tbakey") || "";
+    updateRepCount();
+
+    function switchTab(tab) {
+      ["data", "analyze", "reports"].forEach(t => {
+        $("view-" + t).style.display = (t === tab) ? "block" : "none";
       });
-
-      const handleSaveSettings = (newKey, newUrl) => {
-        setTbaKey(newKey);
-        setFunctionUrl(newUrl);
-        localStorage.setItem('frc_tba_key', newKey);
-        localStorage.setItem('frc_function_url', newUrl);
-        setShowSettings(false);
-      };
-
-      useEffect(() => {
-        localStorage.setItem('frc_saved_reports', JSON.stringify(savedReports));
-      }, [savedReports]);
-
-      // Load Team & Events from TBA
-      const handleLoadTeam = async () => {
-        if (!teamNumber.trim()) return;
-        setLoading(true);
-        setError('');
-        setTeamInfo(null);
-        setEvents([]);
-        setMatches([]);
-
-        const cleanKey = tbaKey.trim();
-        const headers = cleanKey ? { 'X-TBA-Auth-Key': cleanKey } : {};
-
-        try {
-          const teamRes = await fetch(`https://www.thebluealliance.com/api/v3/team/frc${teamNumber.trim()}`, { headers });
-          if (!teamRes.ok) throw new Error(teamRes.status === 401 ? 'Invalid or missing TBA Key. Click the Settings icon to add it.' : 'Team not found on The Blue Alliance');
-          const teamData = await teamRes.json();
-          setTeamInfo(teamData);
-
-          const eventsRes = await fetch(`https://www.thebluealliance.com/api/v3/team/frc${teamNumber.trim()}/events/${year}`, { headers });
-          if (eventsRes.ok) {
-            const eventsData = await eventsRes.json();
-            eventsData.sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''));
-            setEvents(eventsData);
-            if (eventsData.length > 0) {
-              setSelectedEventKey(eventsData[0].key);
-            }
-          }
-        } catch (err) {
-          setError(err.message || 'Failed to fetch team data');
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      // Load Matches with TBA Driver Station Barcodes & FMS Telemetry
-      useEffect(() => {
-        if (!selectedEventKey || !teamNumber.trim()) return;
-
-        const loadMatches = async () => {
-          setLoading(true);
-          setError('');
-          const cleanKey = tbaKey.trim();
-          const headers = cleanKey ? { 'X-TBA-Auth-Key': cleanKey } : {};
-
-          try {
-            const res = await fetch(`https://www.thebluealliance.com/api/v3/team/frc${teamNumber.trim()}/event/${selectedEventKey}/matches`, { headers });
-            if (!res.ok) throw new Error('Failed to load event matches');
-            const matchData = await res.json();
-
-            const myKey = `frc${teamNumber.trim()}`;
-            const processed = matchData.map(m => {
-              const redKeys = m.alliances?.red?.team_keys || [];
-              const blueKeys = m.alliances?.blue?.team_keys || [];
-              const isRed = redKeys.includes(myKey);
-              const isBlue = blueKeys.includes(myKey);
-              const alliance = isRed ? 'red' : (isBlue ? 'blue' : 'unknown');
-
-              // Driver Station slot (1, 2, or 3)
-              let slot = 1;
-              if (isRed) slot = redKeys.indexOf(myKey) + 1;
-              if (isBlue) slot = blueKeys.indexOf(myKey) + 1;
-              const stationName = alliance !== 'unknown' ? `${alliance.toUpperCase()} ${slot}` : 'Unknown';
-
-              // Starting Barcode & Starting Line Position
-              let barcode = `${stationName}`;
-              if (slot === 1) barcode += ' (Amp Wall / Stage Left)';
-              else if (slot === 2) barcode += ' (Subwoofer Center / Middle)';
-              else if (slot === 3) barcode += ' (Source Side / Stage Right)';
-
-              // Alliance partners & Opponents
-              const partners = (isRed ? redKeys : blueKeys)
-                .filter(k => k !== myKey)
-                .map(k => k.replace('frc', ''))
-                .join(', ');
-              const opponents = (isRed ? blueKeys : redKeys)
-                .map(k => k.replace('frc', ''))
-                .join(', ');
-
-              // FMS Telemetry breakdown
-              const breakdown = m.score_breakdown?.[alliance] || {};
-
-              // Auto Leave / Mobility Status
-              let autoLeave = 'Unknown';
-              const autoLine = breakdown[`autoLineRobot${slot}`];
-              const autoMobility = breakdown[`autoMobilityRobot${slot}`] || breakdown[`mobilityRobot${slot}`];
-              if (autoLine === 'Yes' || autoMobility === 'Yes' || autoMobility === true) {
-                autoLeave = 'Verified Left Starting Line';
-              } else if (autoLine === 'No' || autoMobility === 'No' || autoMobility === false) {
-                autoLeave = 'Did NOT Leave Starting Line';
-              }
-
-              // Endgame Climb Status
-              let endgame = 'Unknown';
-              const endgameAction = breakdown[`endGameRobot${slot}`];
-              if (endgameAction) endgame = endgameAction;
-
-              // YouTube video link
-              const ytVideo = (m.videos || []).find(v => v.type === 'youtube');
-              const videoUrl = ytVideo ? `https://www.youtube.com/watch?v=${ytVideo.key}` : '';
-
-              const myScore = m.alliances?.[alliance]?.score ?? 0;
-              const oppScore = m.alliances?.[isRed ? 'blue' : 'red']?.score ?? 0;
-              let result = '';
-              if (myScore > oppScore) result = 'Win';
-              else if (myScore < oppScore) result = 'Loss';
-              else if (myScore === oppScore && myScore > 0) result = 'Tie';
-
-              return {
-                matchKey: m.key,
-                matchNumber: m.match_number,
-                compLevel: m.comp_level,
-                label: `${m.comp_level.toUpperCase()} ${m.match_number}`,
-                alliance,
-                score: `${myScore} - ${oppScore}`,
-                result,
-                videoUrl,
-                youtubeKey: ytVideo?.key || '',
-                telemetry: {
-                  station: stationName,
-                  stationSlot: slot,
-                  stationBarcode: barcode,
-                  partners,
-                  opponents,
-                  autoLeave,
-                  endgame,
-                  autoPoints: breakdown.autoPoints ?? null,
-                  teleopPoints: breakdown.teleopPoints ?? null,
-                  endgamePoints: breakdown.endGamePoints ?? null,
-                  totalPoints: breakdown.totalPoints ?? myScore,
-                }
-              };
-            });
-
-            // Sort qm, qf, sf, f
-            const levelOrder = { qm: 1, ef: 2, qf: 3, sf: 4, f: 5 };
-            processed.sort((a, b) => {
-              const diff = (levelOrder[a.compLevel] || 99) - (levelOrder[b.compLevel] || 99);
-              if (diff !== 0) return diff;
-              return a.matchNumber - b.matchNumber;
-            });
-
-            setMatches(processed);
-          } catch (err) {
-            setError(err.message || 'Error loading matches');
-          } finally {
-            setLoading(false);
-          }
-        };
-
-        loadMatches();
-      }, [selectedEventKey]);
-
-      // Call Video Analysis with Starting Barcode & Ground Truth Telemetry
-      const handleAnalyzeMatch = async (match) => {
-        if (!match.videoUrl) {
-          alert('This match does not have a linked YouTube video on The Blue Alliance.');
-          return;
-        }
-
-        setAnalyzingMatchKey(match.matchKey);
-        setSelectedMatchForPlayer(match);
-        setError('');
-
-        const selectedEvent = events.find(e => e.key === selectedEventKey);
-        const eventName = selectedEvent ? selectedEvent.name : 'FRC Event';
-
-        const payload = {
-          videoUrl: match.videoUrl,
-          teamNumber: parseInt(teamNumber, 10),
-          teamName: teamInfo?.nickname || `Team ${teamNumber}`,
-          eventName,
-          matchLabel: match.label,
-          alliance: match.alliance,
-          score: match.score,
-          year: year,
-          // Starting Barcode & Ground Truth Telemetry for calibration
-          telemetry: match.telemetry
-        };
-
-        try {
-          const res = await fetch(functionUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-
-          if (!res.ok) {
-            const errBody = await res.text();
-            throw new Error(`Analysis failed (${res.status}): ${errBody}`);
-          }
-
-          const responseData = await res.json();
-          const analysisData = responseData.data || responseData;
-
-          const completeReport = {
-            id: `${match.matchKey}_${Date.now()}`,
-            teamNumber,
-            teamName: teamInfo?.nickname || `Team ${teamNumber}`,
-            matchLabel: match.label,
-            matchKey: match.matchKey,
-            eventName,
-            year,
-            videoUrl: match.videoUrl,
-            youtubeKey: match.youtubeKey,
-            telemetry: match.telemetry,
-            timestamp: new Date().toISOString(),
-            analysis: analysisData
-          };
-
-          setActiveAnalysis(completeReport);
-          setSavedReports(prev => [completeReport, ...prev]);
-        } catch (err) {
-          console.error(err);
-          setError(`AI Video Analysis Error: ${err.message}`);
-        } finally {
-          setAnalyzingMatchKey(null);
-        }
-      };
-
-      return (
-        <div className="min-h-screen flex flex-col bg-[#0b0f19] text-gray-100">
-          {/* Header */}
-          <header className="border-b border-gray-800 bg-gray-900/90 backdrop-blur sticky top-0 z-40 px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-black text-white text-lg shadow-md shadow-blue-500/20">
-                FRC
-              </div>
-              <div>
-                <h1 className="font-bold text-base md:text-lg leading-tight text-white flex items-center gap-2">
-                  FRC Tactical Scouting & AI Video Analyzer
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                    TBA Barcode Calibrated
-                  </span>
-                </h1>
-                <p className="text-xs text-gray-400">Computer vision scouting anchored by starting barcodes & referee telemetry</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setActiveTab('matches')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeTab === 'matches' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-              >
-                Match Video Scouting
-              </button>
-              <button
-                onClick={() => setActiveTab('reports')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1 ${activeTab === 'reports' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-              >
-                Saved Reports
-                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-gray-800 text-[10px] text-gray-300">
-                  {savedReports.length}
-                </span>
-              </button>
-              <button
-                onClick={() => setShowSettings(true)}
-                className="p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-700 transition"
-                title="Configure TBA Key & Function URL"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-            </div>
-          </header>
-
-          {/* Search Bar */}
-          <div className="bg-gray-900 border-b border-gray-800 px-4 py-3">
-            <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-3">
-              <div className="flex items-center space-x-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-700">
-                <span className="text-xs font-semibold text-gray-400">Team #</span>
-                <input
-                  type="text"
-                  value={teamNumber}
-                  onChange={(e) => setTeamNumber(e.target.value)}
-                  placeholder="3061"
-                  className="bg-transparent border-none text-white text-sm font-mono focus:outline-none w-20"
-                />
-              </div>
-
-              <div className="flex items-center space-x-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-700">
-                <span className="text-xs font-semibold text-gray-400">Season</span>
-                <select
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                  className="bg-transparent border-none text-white text-sm focus:outline-none cursor-pointer"
-                >
-                  <option value="2026" className="bg-gray-900">2026 Season</option>
-                  <option value="2025" className="bg-gray-900">2025 (Reefscape)</option>
-                  <option value="2024" className="bg-gray-900">2024 (Crescendo)</option>
-                  <option value="2023" className="bg-gray-900">2023 (Charged Up)</option>
-                </select>
-              </div>
-
-              <button
-                onClick={handleLoadTeam}
-                disabled={loading}
-                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium text-xs px-4 py-2 rounded-lg transition shadow-md shadow-blue-600/20"
-              >
-                {loading ? 'Fetching TBA...' : 'Load Team & Matches'}
-              </button>
-
-              {teamInfo && (
-                <div className="ml-auto flex items-center space-x-2 bg-gray-800/80 px-3 py-1.5 rounded-lg border border-gray-700 text-xs">
-                  <span className="font-bold text-white">#{teamInfo.team_number}</span>
-                  <span className="text-gray-300">{teamInfo.nickname}</span>
-                  <span className="text-gray-500">• {teamInfo.city}, {teamInfo.state_prov}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Error Message */}
-          {error && (
-            <div className="bg-red-950/80 border-b border-red-800 text-red-200 px-4 py-2.5 text-xs flex items-center justify-between">
-              <span>{error}</span>
-              <button onClick={() => setError('')} className="text-red-400 hover:text-white font-bold ml-4">✕</button>
-            </div>
-          )}
-
-          {/* Main Area */}
-          <main className="flex-1 max-w-7xl w-full mx-auto p-4 flex flex-col gap-6">
-            {activeTab === 'matches' ? (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Left Column: Matches */}
-                <div className="lg:col-span-6 flex flex-col gap-4">
-                  {events.length > 0 && (
-                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                      <label className="block text-xs font-semibold text-gray-400 mb-2">Select Regional / Event</label>
-                      <select
-                        value={selectedEventKey}
-                        onChange={(e) => setSelectedEventKey(e.target.value)}
-                        className="w-full bg-gray-950 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                      >
-                        {events.map(ev => (
-                          <option key={ev.key} value={ev.key}>
-                            {ev.name} ({ev.start_date || ''})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col">
-                    <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                        <span>Matches & Video Feeds</span>
-                        <span className="text-xs font-normal text-gray-400">({matches.length} found)</span>
-                      </h2>
-                      <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-mono">
-                        ● Starting Barcodes Ready
-                      </span>
-                    </div>
-
-                    {matches.length === 0 ? (
-                      <div className="text-center py-12 text-gray-500 text-xs">
-                        {loading ? 'Loading matches from The Blue Alliance...' : 'No matches loaded. Click "Load Team & Matches" above.'}
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead>
-                            <tr className="border-b border-gray-800 text-gray-400 font-semibold">
-                              <th className="py-2 px-2">Match</th>
-                              <th className="py-2 px-2">Starting Barcode</th>
-                              <th className="py-2 px-2">Score</th>
-                              <th className="py-2 px-2">Video</th>
-                              <th className="py-2 px-2 text-right">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-800/60">
-                            {matches.map(m => (
-                              <tr key={m.matchKey} className="hover:bg-gray-800/40 transition">
-                                <td className="py-2.5 px-2 font-mono font-medium text-white">
-                                  {m.label}
-                                </td>
-                                <td className="py-2.5 px-2">
-                                  <div className="flex flex-col">
-                                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold w-fit ${
-                                      m.alliance === 'red' ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-blue-950 text-blue-300 border border-blue-800'
-                                    }`}>
-                                      {m.telemetry.station}
-                                    </span>
-                                    <span className="text-[10px] text-gray-400 mt-0.5 truncate max-w-[140px]" title={m.telemetry.stationBarcode}>
-                                      {m.telemetry.stationBarcode.replace(`${m.telemetry.station} `, '')}
-                                    </span>
-                                  </div>
-                                </td>
-                                <td className="py-2.5 px-2">
-                                  <span className={`font-mono font-medium ${
-                                    m.result === 'Win' ? 'text-green-400' : (m.result === 'Loss' ? 'text-red-400' : 'text-gray-300')
-                                  }`}>
-                                    {m.score}
-                                  </span>
-                                  <span className="text-[10px] text-gray-500 ml-1">({m.result})</span>
-                                </td>
-                                <td className="py-2.5 px-2">
-                                  {m.videoUrl ? (
-                                    <button
-                                      onClick={() => setSelectedMatchForPlayer(m)}
-                                      className="text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium"
-                                    >
-                                      Watch
-                                    </button>
-                                  ) : (
-                                    <span className="text-gray-600 text-[11px]">No video</span>
-                                  )}
-                                </td>
-                                <td className="py-2.5 px-2 text-right">
-                                  <button
-                                    onClick={() => handleAnalyzeMatch(m)}
-                                    disabled={!m.videoUrl || analyzingMatchKey === m.matchKey}
-                                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition ${
-                                      analyzingMatchKey === m.matchKey
-                                        ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50 animate-pulse'
-                                        : m.videoUrl
-                                          ? 'bg-blue-600 hover:bg-blue-500 text-white shadow'
-                                          : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                                    }`}
-                                  >
-                                    {analyzingMatchKey === m.matchKey ? 'Calibrating...' : 'Analyze Robot'}
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right Column: Video Replay & Calibrated Report */}
-                <div className="lg:col-span-6 flex flex-col gap-4">
-                  {selectedMatchForPlayer && selectedMatchForPlayer.youtubeKey && (
-                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 overflow-hidden shadow-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                          {selectedMatchForPlayer.label} Match Replay
-                        </span>
-                        <span className="text-[11px] text-gray-400">
-                          Starting Station: <strong className="text-white">{selectedMatchForPlayer.telemetry.station}</strong>
-                        </span>
-                      </div>
-                      <div className="aspect-video w-full rounded-lg overflow-hidden bg-black border border-gray-800">
-                        <iframe
-                          className="w-full h-full"
-                          src={`https://www.youtube.com/embed/${selectedMatchForPlayer.youtubeKey}?autoplay=1&rel=0`}
-                          title="Match Video"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        ></iframe>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeAnalysis ? (
-                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col gap-4 shadow-xl">
-                      {/* Calibration Verification Banner */}
-                      <div className="bg-emerald-950/60 border border-emerald-700/60 rounded-lg p-3 text-emerald-200 text-xs">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-bold flex items-center gap-1.5 text-emerald-300">
-                            ✓ TBA Barcode & FMS Ground-Truth Calibrated
-                          </span>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300 border border-emerald-700/40">
-                            Confidence: {activeAnalysis.analysis?.confidence || 'High'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-[11px] text-emerald-300/80 mt-2 border-t border-emerald-800/40 pt-2">
-                          <div>
-                            <strong>Starting Barcode:</strong> {activeAnalysis.telemetry?.stationBarcode || 'Verified'}
-                          </div>
-                          <div>
-                            <strong>Alliance Partners:</strong> {activeAnalysis.telemetry?.partners || 'None'}
-                          </div>
-                          <div>
-                            <strong>Official Auto Leave:</strong> {activeAnalysis.telemetry?.autoLeave || 'Verified'}
-                          </div>
-                          <div>
-                            <strong>Official Endgame:</strong> {activeAnalysis.telemetry?.endgame || 'Audited'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Header */}
-                      <div className="border-b border-gray-800 pb-3 flex items-center justify-between">
-                        <div>
-                          <h3 className="font-bold text-base text-white">
-                            Tactical Scouting Report: Team {activeAnalysis.teamNumber} ({activeAnalysis.matchLabel})
-                          </h3>
-                          <p className="text-xs text-gray-400">{activeAnalysis.eventName} • {activeAnalysis.year}</p>
-                        </div>
-                        <span className="px-2.5 py-1 rounded text-xs font-bold bg-blue-900/60 text-blue-300 border border-blue-700">
-                          Robot Tracked
-                        </span>
-                      </div>
-
-                      {/* Executive Summary */}
-                      <div className="text-xs text-gray-200 leading-relaxed bg-gray-950 p-3 rounded-lg border border-gray-800">
-                        {activeAnalysis.analysis?.summary}
-                      </div>
-
-                      {/* Phase Ratings */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                        <div className="bg-gray-950 p-3 rounded-lg border border-gray-800">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-semibold text-gray-400">Autonomous</span>
-                            <span className="font-bold text-blue-400">{activeAnalysis.analysis?.auto?.rating ?? 'N/A'}/10</span>
-                          </div>
-                          <p className="text-[11px] text-gray-300">{activeAnalysis.analysis?.auto?.description}</p>
-                        </div>
-
-                        <div className="bg-gray-950 p-3 rounded-lg border border-gray-800">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-semibold text-gray-400">Teleop Cycling</span>
-                            <span className="font-bold text-blue-400">{activeAnalysis.analysis?.teleop?.rating ?? 'N/A'}/10</span>
-                          </div>
-                          <p className="text-[11px] text-gray-300">{activeAnalysis.analysis?.teleop?.description}</p>
-                        </div>
-
-                        <div className="bg-gray-950 p-3 rounded-lg border border-gray-800">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-semibold text-gray-400">Endgame</span>
-                            <span className="font-bold text-blue-400">{activeAnalysis.analysis?.endgame?.rating ?? 'N/A'}/10</span>
-                          </div>
-                          <p className="text-[11px] text-gray-300">{activeAnalysis.analysis?.endgame?.description}</p>
-                        </div>
-                      </div>
-
-                      {/* Strengths & Weaknesses */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                        <div className="bg-emerald-950/20 border border-emerald-900/40 p-3 rounded-lg">
-                          <span className="font-semibold text-emerald-400 block mb-1">Key Strengths</span>
-                          <ul className="list-disc list-inside text-[11px] text-emerald-200/90 space-y-0.5">
-                            {(activeAnalysis.analysis?.strengths || []).map((s, idx) => (
-                              <li key={idx}>{s}</li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-lg">
-                          <span className="font-semibold text-rose-400 block mb-1">Liabilities & Traffic</span>
-                          <ul className="list-disc list-inside text-[11px] text-rose-200/90 space-y-0.5">
-                            {(activeAnalysis.analysis?.weaknesses || []).map((w, idx) => (
-                              <li key={idx}>{w}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-
-                      {/* Alliance Recommendation */}
-                      <div className="bg-indigo-950/30 border border-indigo-900/50 p-3 rounded-lg text-xs">
-                        <span className="font-semibold text-indigo-300 block mb-1">Alliance Draft Recommendation</span>
-                        <p className="text-[11px] text-indigo-100">{activeAnalysis.analysis?.alliancePickRecommendation}</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-gray-900/60 border border-dashed border-gray-800 rounded-xl p-12 text-center text-gray-500 text-xs">
-                      Select a match from the table on the left and click <strong>"Analyze Robot"</strong> to generate a barcode-calibrated tactical scouting report.
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              /* Saved Reports View */
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col gap-4">
-                <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-                  <h2 className="text-base font-bold text-white">Saved Tactical Scouting Reports</h2>
-                  {savedReports.length > 0 && (
-                    <button
-                      onClick={() => {
-                        if (confirm('Clear all saved scouting reports?')) setSavedReports([]);
-                      }}
-                      className="text-xs text-rose-400 hover:text-rose-300 font-medium"
-                    >
-                      Clear All Reports
-                    </button>
-                  )}
-                </div>
-
-                {savedReports.length === 0 ? (
-                  <div className="text-center py-16 text-gray-500 text-xs">
-                    No saved reports yet. Run an analysis from the Match Video Scouting tab.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {savedReports.map(rep => (
-                      <div key={rep.id} className="bg-gray-950 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 hover:border-gray-700 transition">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-sm text-white">Team {rep.teamNumber} • {rep.matchLabel}</span>
-                          <span className="text-[10px] text-gray-500">{new Date(rep.timestamp).toLocaleDateString()}</span>
-                        </div>
-                        <span className="text-xs text-gray-400">{rep.eventName}</span>
-                        <div className="bg-gray-900 p-2.5 rounded-lg text-xs text-gray-300 my-1 line-clamp-3">
-                          {rep.analysis?.summary}
-                        </div>
-                        <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-gray-850">
-                          <span className="text-[11px] text-emerald-400 font-medium">
-                            Station: {rep.telemetry?.stationBarcode || rep.telemetry?.station}
-                          </span>
-                          <button
-                            onClick={() => {
-                              setActiveAnalysis(rep);
-                              setActiveTab('matches');
-                            }}
-                            className="text-blue-400 hover:text-blue-300 font-medium text-xs"
-                          >
-                            View Full Report →
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </main>
-
-          {/* Settings Modal */}
-          {showSettings && (
-            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-gray-900 border border-gray-800 rounded-xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">
-                <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-                  <h3 className="font-bold text-white text-base">API & Function Settings</h3>
-                  <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-white">✕</button>
-                </div>
-
-                <div className="flex flex-col gap-3 text-xs">
-                  <div>
-                    <label className="block text-gray-300 font-semibold mb-1">
-                      The Blue Alliance (TBA) Auth Key
-                    </label>
-                    <input
-                      type="password"
-                      id="input_tba_key"
-                      defaultValue={tbaKey}
-                      placeholder="Paste your TBA API Key..."
-                      className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
-                    />
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Obtain from thebluealliance.com/account (Account → Read API Keys)
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-gray-300 font-semibold mb-1">
-                      Supabase Video Function URL
-                    </label>
-                    <input
-                      type="text"
-                      id="input_fn_url"
-                      defaultValue={functionUrl}
-                      placeholder={DEFAULT_SUPABASE_URL}
-                      className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
-                    />
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Your Supabase Edge Function URL
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-800">
-                  <button
-                    onClick={() => setShowSettings(false)}
-                    className="px-4 py-2 rounded-lg text-xs font-medium text-gray-400 hover:text-white hover:bg-gray-800 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      const k = document.getElementById('input_tba_key').value;
-                      const u = document.getElementById('input_fn_url').value;
-                      handleSaveSettings(k, u);
-                    }}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-md transition"
-                  >
-                    Save Settings
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      );
+      document.querySelectorAll("nav#tabs button").forEach((b, idx) => {
+        b.className = (["data", "analyze", "reports"][idx] === tab) ? "active" : "";
+      });
+      if (tab === "reports") renderReports();
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    function updateRepCount() {
+      $("rep-count").textContent = savedReports.length;
+    }
+
+    async function tba(p) {
+      const k = $("key").value.trim();
+      const headers = k ? { "X-TBA-Auth-Key": k } : {};
+      const r = await fetch(TBA + p, { headers });
+      if (r.status === 401) throw new Error("TBA rejected key (401)");
+      return r.ok ? r.json() : null;
+    }
+
+    function oprs(k) {
+      if (!(k in cache)) cache[k] = tba("/event/" + k + "/oprs").then(d => (d && d.oprs) || {}).catch(() => ({}));
+      return cache[k];
+    }
+
+    function pickEpa(j) {
+      if (Array.isArray(j)) j = j[0];
+      if (Array.isArray(j && j.results)) j = j.results[0];
+      const e = (j && j.epa) || {};
+      const cands = [e.total_points && e.total_points.mean, e.total_points && e.total_points.value, typeof e.total_points === "number" ? e.total_points : null, e.stats && e.stats.end, e.stats && e.stats.pre_champs, j && j.epa_end, j && j.epa_mean];
+      for (const c of cands) if (typeof c === "number") return r2(c);
+      return "";
+    }
+
+    function epaUrls(team, year, evKey) {
+      const u = [["season lookup", `${SB}/team_year/${team}/${year}`]];
+      if (evKey) u.push(["last-event lookup", `${SB}/team_event/${team}/${evKey}`]);
+      u.push(["team_years lookup", `${SB}/team_years?team=${team}&year=${year}`]);
+      if (evKey) u.push(["event-list lookup", `${SB}/team_events?event=${evKey}&limit=1000`, "list"]);
+      if (evKey) u.push(["event lookup", `${SB}/event/${evKey}`, "list"]);
+      return u;
+    }
+
+    function findTeamEntry(root, team) {
+      const want = String(team);
+      const stack = [root];
+      while (stack.length) {
+        const x = stack.pop();
+        if (x && typeof x === "object") {
+          if (!Array.isArray(x)) {
+            const id = x.team ?? x.team_number ?? x.team_key ?? x.number;
+            if (id != null && String(id).replace("frc", "") === want && pickEpa(x) !== "") return x;
+          }
+          for (const k in x) stack.push(x[k]);
+        }
+      }
+      return null;
+    }
+
+    async function epa(team, year, evKey) {
+      for (const [label, u, kind] of epaUrls(team, year, evKey)) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3500);
+          const r = await fetch(u, { signal: controller.signal });
+          clearTimeout(timer);
+          if (!r.ok) continue;
+          let j = await r.json();
+          if (kind === "list") j = findTeamEntry(j, team);
+          const v = pickEpa(j);
+          if (v !== "") return v;
+        } catch (e) {}
+      }
+      return "";
+    }
+
+    async function debugEpa() {
+      const team = ($("src").value.match(/\b\d{1,5}\b/) || [3061])[0];
+      const year = parseYears($("years").value || "2026")[0] || 2026;
+      $("dbg").style.display = "block";
+      let out = `Testing Statbotics for team ${team}, year ${year}\n`;
+      let evKey = "";
+      try {
+        const ev = (await tba(`/team/frc${team}/events/${year}/simple`)) || [];
+        ev.sort((a,b) => (a.start_date||"").localeCompare(b.start_date||""));
+        const today = new Date().toISOString().slice(0, 10);
+        const real = ev.filter(e => [0,1,2,3,4,5].includes(e.event_type) && (e.end_date||"9999") <= today);
+        evKey = real.length ? real[real.length - 1].key : "";
+        out += "Last real event per TBA: " + (evKey || "none found") + "\n";
+      } catch (x) { out += "TBA error: " + x.message + "\n"; }
+
+      for (const [label, u] of epaUrls(team, year, evKey)) {
+        out += "\n" + label + ": " + u + "\n";
+        try {
+          const r = await fetch(u);
+          const t = await r.text();
+          out += "HTTP " + r.status + "\n" + t.slice(0, 500) + "\n";
+        } catch (x) { out += "Failed: " + x.message + "\n"; }
+      }
+      $("dbg").textContent = out;
+    }
+
+    async function one(t, year, statboticsState) {
+      const team = t.num;
+      const ev = (await tba(`/team/frc${team}/events/${year}`)) || [];
+      ev.sort((a,b) => (a.start_date||"").localeCompare(b.start_date||""));
+      const today = new Date().toISOString().slice(0, 10);
+      const wk = Array.from({length: 8}, () => []); let worlds = "", off = [];
+
+      for (const e of ev) {
+        if ((e.end_date||"9999") > today) continue;
+        const o = (await oprs(e.key))["frc" + team];
+        if (o == null) continue;
+        const score = r2(o);
+        if (e.event_type === 99) off.push(score);
+        else if (e.event_type === 3) worlds = score;
+        else if ([0,1,2,5].includes(e.event_type) && e.week != null) {
+          const w = e.week + 1;
+          if (w >= 1 && w <= 7) wk[w].push(score);
+        }
+      }
+
+      const real = ev.filter(e => [0,1,2,3,4,5].includes(e.event_type) && (e.end_date||"9999") <= today);
+      const evKey = real.length ? real[real.length - 1].key : "";
+
+      let teamEpa = "";
+      if (!statboticsState.skip) {
+        teamEpa = await epa(team, year, evKey);
+        if (teamEpa === "") {
+          statboticsState.fails++;
+          if (statboticsState.fails >= 2) statboticsState.skip = true;
+        } else {
+          statboticsState.fails = 0;
+        }
+      }
+
+      const row = [team + (t.name ? " - " + t.name : ""), year, teamEpa];
+      for (let w = 1; w <= 7; w++) row.push(wk[w].length ? wk[w][wk[w].length - 1] : "");
+      row.push(worlds);
+      for (let i = 0; i < 5; i++) row.push(i < off.length ? off[i] : "");
+      return row;
+    }
+
+    function parseYears(txt) {
+      const out = new Set();
+      for (const part of (txt||"").split(/[,\s]+/).filter(Boolean)) {
+        const m = part.match(/^(\d{4})-(\d{4})$/);
+        if (m) {
+          let a = +m[1], b = +m[2]; if (a > b) [a, b] = [b, a];
+          for (let y = a; y <= b && y - a < 30; y++) out.add(y);
+        } else if (/^\d{4}$/.test(part)) out.add(+part);
+      }
+      return [...out];
+    }
+
+    async function teamsFromEvent(key) {
+      const teams = await tba(`/event/${key}/teams/simple`);
+      if (!teams || !teams.length) throw new Error(`No teams found for event ${key}`);
+      return teams.map(t => ({ num: t.team_number, name: t.nickname })).sort((a,b) => a.num - b.num);
+    }
+
+    async function resolveTeams(input, rosterYear) {
+      input = input.trim();
+      if (!input) throw new Error("Enter an event name, event link, event key, or team number(s)");
+      if (/^[\d,\s]+$/.test(input)) {
+        const nums = [...new Set((input.match(/\d+/g) || []).map(Number))];
+        const out = [];
+        for (const n of nums) {
+          const s = await tba(`/team/frc${n}/simple`);
+          out.push({ num: n, name: s ? s.nickname : "" });
+        }
+        return out;
+      }
+      let m = input.match(/frc-events\.firstinspires\.org\/(\d{4})\/([A-Za-z0-9]+)/i);
+      if (m) return teamsFromEvent(m[1] + m[2].toLowerCase());
+      m = input.match(/thebluealliance\.com\/event\/(\d{4}[A-Za-z0-9]+)/i);
+      if (m) return teamsFromEvent(m[1].toLowerCase());
+      if (/^\d{4}(?=[a-z0-9]*[a-z])[a-z0-9]+$/i.test(input)) return teamsFromEvent(input.toLowerCase());
+      const evs = (await tba(`/events/${rosterYear}/simple`)) || [];
+      const words = input.toLowerCase().split(/\s+/);
+      const hits = evs.filter(e => words.every(w => (e.name + " " + e.key).toLowerCase().includes(w)));
+      if (!hits.length) throw new Error(`No ${rosterYear} event found matching "${input}"`);
+      const pick = hits.length === 1 ? hits[0] : (hits.find(e => e.name.toLowerCase() === input.toLowerCase()) || hits[0]);
+      $("status").textContent = "Using event: " + pick.name + " (" + pick.key + ")";
+      return teamsFromEvent(pick.key);
+    }
+
+    $("go").onclick = async () => {
+      localStorage.setItem("tbakey", $("key").value.trim());
+      rows = []; cache = {}; render();
+      try {
+        const years = parseYears($("years").value.trim() || "2026");
+        $("status").className = ""; $("status").textContent = "Finding teams...";
+        const teams = await resolveTeams($("src").value, years[0]);
+        const tasks = [];
+        for (const t of teams) for (const y of years) tasks.push([t, y]);
+        const statboticsState = { fails: 0, skip: false };
+        for (let i = 0; i < tasks.length; i += 5) {
+          $("status").textContent = `Loading ${Math.min(i + 5, tasks.length)}/${tasks.length}...`;
+          const chunk = await Promise.all(tasks.slice(i, i + 5).map(([t, y]) => one(t, y, statboticsState)));
+          rows.push(...chunk);
+          render();
+        }
+        $("status").className = "ok"; $("status").textContent = "Done.";
+      } catch (e) {
+        $("status").className = "err"; $("status").textContent = "Error: " + e.message;
+      }
+    };
+
+    function render() {
+      let v = rows;
+      if (sortCol >= 0) {
+        v = [...v].sort((a,b) => {
+          const x = a[sortCol], y = b[sortCol];
+          if (x === "" && y === "") return 0; if (x === "") return 1; if (y === "") return -1;
+          const c = (typeof x === "number") ? x - y : String(x).localeCompare(String(y));
+          return asc ? c : -c;
+        });
+      }
+      const cell = (c, i) => {
+        if (i === 0) {
+          const m = String(c).match(/^(\d+)(?: - (.*))?$/);
+          return m ? `<td><b class="n">${m[1]}</b>${esc(m[2]||"")}</td>` : `<td>${esc(c)}</td>`;
+        }
+        return `<td${i===2 ? ' class="epa"' : ""}>${esc(c)}</td>`;
+      };
+      $("t").innerHTML = rows.length ? ("<tr>" + H.map((h, i) => `<th onclick="sortBy(${i})">${h}${sortCol === i ? (asc ? " ▲" : " ▼") : ""}</th>`).join("") + "</tr>" + v.map(r => "<tr>" + r.map(cell).join("") + "</tr>").join("")) : "";
+    }
+
+    function sortBy(i) { asc = (sortCol === i) ? !asc : (i === 0 || i === 1); sortCol = i; render(); }
+
+    $("copy").onclick = async () => {
+      if (!rows.length) { $("status").className = "err"; $("status").textContent = "Nothing to copy yet. Load data first."; return; }
+      const text = [H.join("\t"), ...rows.map(r => r.join("\t"))].join("\n");
+      try { await navigator.clipboard.writeText(text); }
+      catch (e) {
+        const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+      }
+      $("status").className = "ok"; $("status").textContent = `Copied all data (${rows.length} rows, all columns) to clipboard!`;
+    };
+
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+    function matchLabel(m) {
+      const L = {qm:"Qualification", ef:"Eighthfinal", qf:"Quarterfinal", sf:"Semifinal", f:"Final"};
+      const n = L[m.comp_level] || m.comp_level;
+      return m.comp_level === "qm" ? `${n} ${m.match_number}` : `${n} ${m.set_number}-${m.match_number}`;
+    }
+
+    // ==================== MATCH VIDEOS ====================
+    let videoList = [];
+    $("vgo").onclick = async () => {
+      localStorage.setItem("tbakey", $("key").value.trim());
+      $("vt").innerHTML = ""; videoList = [];
+      const num = ($("vteam").value.match(/\d+/) || [])[0];
+      const years = parseYears($("vyears").value.trim() || "2026");
+      if (!num) { $("vstatus").className = "err"; $("vstatus").textContent = "Enter a team number."; return; }
+      const onlyVideo = $("vonly").checked;
+      const me = "frc" + num;
+      try {
+        $("vstatus").className = ""; $("vstatus").textContent = `Loading match videos for team ${num}...`;
+        for (const y of years) {
+          const evs = (await tba(`/team/${me}/events/${y}/simple`)) || [];
+          const evMap = {}; evs.forEach(e => evMap[e.key] = e);
+          const ms = (await tba(`/team/${me}/matches/${y}`)) || [];
+          for (const m of ms) {
+            const vids = (m.videos || []).filter(v => v.type === "youtube");
+            if (onlyVideo && !vids.length) continue;
+            const color = (m.alliances?.red?.team_keys || []).includes(me) ? "red" : "blue";
+            const opp = color === "red" ? "blue" : "red";
+            const mine = m.alliances?.[color]?.score, theirs = m.alliances?.[opp]?.score;
+            let result = "";
+            if (mine != null && theirs != null && mine >= 0 && theirs >= 0) result = mine > theirs ? "Win" : (mine < theirs ? "Loss" : "Tie");
+            const ev = evMap[m.event_key] || {};
+            const ytKey = vids.length ? vids[0].key : "";
+            videoList.push({ year: y, event: ev.name || m.event_key, label: matchLabel(m), alliance: color, score: (mine >= 0 ? `${mine} - ${theirs}` : ""), result, ytKey, url: ytKey ? `https://www.youtube.com/watch?v=${ytKey}` : "", time: m.time || 0, date: ev.start_date || "" });
+          }
+        }
+        videoList.sort((a,b) => (b.date + ("0000000000" + b.time).slice(-10)).localeCompare(a.date + ("0000000000" + a.time).slice(-10)));
+        if (!videoList.length) {
+          $("vstatus").textContent = `No ${onlyVideo ? "video " : ""}matches found for team ${num}.`;
+        } else {
+          $("vstatus").textContent = `${videoList.length} match(es) for team ${num}. Newest first.`;
+          renderVideoTable(num);
+        }
+      } catch (e) {
+        $("vstatus").className = "err"; $("vstatus").textContent = "Error: " + e.message;
+      }
+    };
+
+    function renderVideoTable(teamNum) {
+      $("vt").innerHTML = "<tr><th>Year</th><th>Event</th><th>Match</th><th>Alliance</th><th>Score</th><th>Result</th><th>Video & Analysis</th></tr>"
+        + videoList.map((m, idx) => `
+          <tr>
+            <td>${m.year}</td><td>${esc(m.event)}</td><td>${esc(m.label)}</td>
+            <td class="${m.alliance}">${m.alliance}</td><td>${m.score}</td>
+            <td class="${m.result === "Win" ? "win" : (m.result === "Loss" ? "loss" : "")}">${m.result}</td>
+            <td>
+              ${m.url ? `
+                <a href="${m.url}" target="_blank" rel="noopener" style="color: #0066cc;">Watch</a>
+                <span style="font-size: 11px; color: #666; margin-left: 6px;">
+                  Clip: <input id="c-st-${idx}" placeholder="start" style="width: 36px; padding: 1px 3px; font-size: 11px;"> - 
+                  <input id="c-en-${idx}" placeholder="end" style="width: 36px; padding: 1px 3px; font-size: 11px;">s
+                </span>
+                <button onclick="analyzeMatch(${idx}, '${teamNum}')" style="margin-left: 6px; font-size: 11px;">Analyze</button>
+                <div id="notes-${idx}" style="display: none; margin-top: 6px; padding: 6px; background: #fafafa; border: 1px solid #ddd; font-size: 12px;"></div>
+              ` : 'no video'}
+            </td>
+          </tr>
+        `).join("");
+    }
+
+    // Call Supabase Edge Function to analyze
+    async function analyzeMatch(idx, teamNum) {
+      const m = videoList[idx];
+      const notesEl = $("notes-" + idx);
+      notesEl.style.display = "block";
+      notesEl.innerHTML = "<i>Analyzing match video with Gemini AI...</i>";
+
+      const clipStart = $(`c-st-${idx}`)?.value || "";
+      const clipEnd = $(`c-en-${idx}`)?.value || "";
+
+      try {
+        const res = await fetch(SUPABASE_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoUrl: m.url, teamNumber: Number(teamNum), eventName: m.event, matchLabel: m.label, alliance: m.alliance, score: m.score, clipStart, clipEnd, year: m.year
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Analysis failed");
+
+        const rep = data.data || data;
+        rep.team = teamNum; rep.match = m.label; rep.event = m.event; rep.url = m.url; rep.time = new Date().toLocaleTimeString();
+
+        // Save to reports
+        savedReports.unshift(rep);
+        localStorage.setItem("scout_reports", JSON.stringify(savedReports));
+        updateRepCount();
+
+        notesEl.innerHTML = `
+          <b>Tactical Scouting Report:</b><br>
+          ${rep.summary || ""}<br>
+          <b>Auto (${rep.auto?.rating || 7}/10):</b> ${rep.auto?.description || ""}<br>
+          <b>Teleop (${rep.teleop?.rating || 8}/10):</b> ${rep.teleop?.description || ""}<br>
+          <b>Endgame (${rep.endgame?.rating || 7}/10):</b> ${rep.endgame?.description || ""}<br>
+          <b>Alliance Verdict:</b> ${rep.alliancePickRecommendation || "Recommended partner."}
+        `;
+      } catch (err) {
+        notesEl.innerHTML = `<span style="color: #b00;"><b>Error:</b> ${err.message}</span>`;
+      }
+    }
+
+    function renderReports() {
+      const list = $("reports-list");
+      if (!savedReports.length) {
+        list.innerHTML = "<div style='padding: 20px; border: 1px solid #ccc; background: #fafafa; text-align: center; color: #666;'>No saved reports yet. Go to Video Analyzing and click Analyze next to any match.</div>";
+        return;
+      }
+      list.innerHTML = savedReports.map((r, i) => `
+        <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; background: #fff; font-size: 12px;">
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 4px; margin-bottom: 6px;">
+            <b>Team ${r.team} — ${r.match} (${r.event})</b>
+            <span style="color: #666;">${r.time}</span>
+          </div>
+          <div><b>Summary:</b> ${r.summary || ""}</div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px; margin: 6px 0;">
+            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Auto (${r.auto?.rating || 7}/10):</b> ${r.auto?.description || ""}</div>
+            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Teleop (${r.teleop?.rating || 8}/10):</b> ${r.teleop?.description || ""}</div>
+            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Endgame (${r.endgame?.rating || 7}/10):</b> ${r.endgame?.description || ""}</div>
+          </div>
+          <div><b>Alliance Verdict:</b> ${r.alliancePickRecommendation || ""}</div>
+        </div>
+      `).join("");
+    }
+
+    function clearReports() {
+      if (confirm("Clear all saved reports?")) {
+        savedReports = [];
+        localStorage.removeItem("scout_reports");
+        updateRepCount();
+        renderReports();
+      }
+    }
   </script>
 </body>
 </html>
