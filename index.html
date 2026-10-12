@@ -67,13 +67,6 @@
   <div id="view-analyze" style="display: none;">
     <h3>Match videos & Video Analyzing</h3>
 
-    <!-- Supabase Endpoint config (for secure Gemini key) -->
-    <div style="margin-bottom: 8px; padding: 6px 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
-      <b>Supabase Function URL:</b>
-      <input id="supa-url" placeholder="https://<your-project>.supabase.co/functions/v1/analyze-video" style="width: 450px; font-size: 12px; margin-left: 4px;">
-      <span style="color: #666; margin-left: 6px;">(keeps your Gemini key 100% private)</span>
-    </div>
-
     <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px;">
       <input id="vteam" placeholder="Team number, e.g. 3061" style="width: 180px;">
       <input id="vyears" placeholder="Year(s), e.g. 2026 or 2024-2026" style="width: 220px;">
@@ -97,6 +90,9 @@
   </div>
 
   <script>
+    // Built-in Supabase Edge Function URL (keeps your GEMINI_API_KEY private inside Supabase)
+    const SUPABASE_URL = "https://hiidxcirfnetdaagfsuh.supabase.co/functions/v1/analyze-video";
+
     const TBA = "https://www.thebluealliance.com/api/v3", SB = "https://api.statbotics.io/v3";
     const H = ["Team","Year","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
     let rows = [], cache = {}, sortCol = 2, asc = false;
@@ -105,9 +101,7 @@
     const $ = id => document.getElementById(id);
     const r2 = x => Math.round(x * 100) / 100;
 
-    // Load saved settings
     $("key").value = localStorage.getItem("tbakey") || "";
-    $("supa-url").value = localStorage.getItem("supa_url") || "";
     updateRepCount();
 
     function switchTab(tab) {
@@ -427,22 +421,15 @@
     // Call Supabase Edge Function to analyze
     async function analyzeMatch(idx, teamNum) {
       const m = videoList[idx];
-      const supaUrl = $("supa-url").value.trim() || localStorage.getItem("supa_url");
-      if (!supaUrl) {
-        alert("Please enter your Supabase Function URL in the box above so the request can analyze the video safely.");
-        $("supa-url").focus();
-        return;
-      }
-      localStorage.setItem("supa_url", supaUrl);
       const notesEl = $("notes-" + idx);
       notesEl.style.display = "block";
-      notesEl.innerHTML = "<i>Contacting Supabase Edge Function to analyze video with Gemini...</i>";
+      notesEl.innerHTML = "<i>Analyzing match video with Gemini AI...</i>";
 
       const clipStart = $(`c-st-${idx}`)?.value || "";
       const clipEnd = $(`c-en-${idx}`)?.value || "";
 
       try {
-        const res = await fetch(supaUrl, {
+        const res = await fetch(SUPABASE_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
