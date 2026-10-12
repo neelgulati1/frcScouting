@@ -1,496 +1,1101 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>FRC Scouting & Video Analyzer</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FRC Scouting</title>
   <style>
-    body { font-family: sans-serif; margin: 16px; color: #222; max-width: 1360px; }
-    h2 { margin: 0 0 10px 0; font-size: 24px; font-weight: bold; }
-    h3 { margin: 0 0 10px 0; font-size: 18px; font-weight: bold; }
-    nav { border-bottom: 1px solid #ccc; margin-bottom: 14px; display: flex; gap: 4px; }
-    nav button { padding: 6px 16px; cursor: pointer; border: 1px solid #ccc; background-color: #eee; font-size: 13px; border-radius: 3px 3px 0 0; margin-bottom: -1px; }
-    nav button.active { background-color: #fff; border-bottom: 1px solid #fff; font-weight: bold; }
-    table { border-collapse: collapse; margin-top: 10px; width: 100%; font-size: 13px; }
-    td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: right; }
-    td:first-child, th:first-child { text-align: left; }
-    th { cursor: pointer; background: #eee; user-select: none; white-space: nowrap; }
-    th.l, td.l { text-align: left; }
-    input { margin: 2px 0; padding: 4px 8px; border: 1px solid #ccc; border-radius: 2px; font-size: 13px; }
-    button { padding: 4px 10px; margin: 2px 0; border: 1px solid #bbb; background: #f0f0f0; cursor: pointer; border-radius: 3px; font-size: 13px; }
-    button:hover { background: #e4e4e4; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .err { color: #b00; font-weight: bold; }
-    .ok { color: #070; font-weight: bold; }
-    td b.n { margin-right: 8px; }
-    .red { color: #c00; font-weight: bold; }
-    .blue { color: #0066cc; font-weight: bold; }
-    .win { color: #070; font-weight: bold; }
-    .loss { color: #c00; }
-    .epa { background-color: #f5f9ff; font-weight: bold; }
+    body {
+      font-family: sans-serif;
+      margin: 16px;
+      color: #222;
+      background: #fff;
+    }
+    input, button, select, textarea {
+      font-family: inherit;
+    }
+    table {
+      border-collapse: collapse;
+      margin-top: 10px;
+      width: 100%;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px 8px;
+    }
+    th {
+      background: #eee;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    th:hover {
+      background: #e2e2e2;
+    }
+    .tabs {
+      border-bottom: 1px solid #ccc;
+      margin-bottom: 14px;
+      display: flex;
+      gap: 4px;
+    }
+    .tab-btn {
+      padding: 6px 16px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      background: #eee;
+      margin-bottom: -1px;
+      border-radius: 3px 3px 0 0;
+      font-size: 13px;
+    }
+    .tab-btn.active {
+      background: #fff;
+      border-bottom: 1px solid #fff;
+      font-weight: bold;
+    }
+    .btn {
+      padding: 5px 12px;
+      background-color: #f0f0f0;
+      border: 1px solid #bbb;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .btn:hover {
+      background-color: #e5e5e5;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .input-txt {
+      padding: 4px 8px;
+      border: 1px solid #ccc;
+      border-radius: 2px;
+      font-size: 13px;
+    }
+    .status-ok { color: #070; }
+    .status-err { color: #b00; font-weight: bold; }
+    .status-normal { color: #333; }
+    .card {
+      background: #fafafa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px;
+      margin-top: 10px;
+    }
   </style>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
+  <div id="root"></div>
 
-  <h2>FRC Scouting</h2>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
 
-  <!-- Top Navigation Tabs -->
-  <nav id="tabs">
-    <button class="active" onclick="switchTab('data')">Data</button>
-    <button onclick="switchTab('analyze')">Video Analyzing</button>
-    <button onclick="switchTab('reports')">Saved Reports (<span id="rep-count">0</span>)</button>
-  </nav>
+    const DEFAULT_SUPABASE_URL = "https://hiidxcirfnetdaagfsuh.supabase.co/functions/v1/analyze-video";
+    const TBA_BASE = "https://www.thebluealliance.com/api/v3";
+    const SB_BASE = "https://api.statbotics.io/v3";
 
-  <!-- ==================== TAB 1: DATA ==================== -->
-  <div id="view-data">
-    <div style="margin-bottom: 8px;">
-      <input id="key" placeholder="TBA API key" size="42">
-      <span style="font-size: 11px; color: #666; margin-left: 8px;">(saved in browser)</span>
-    </div>
+    const HEADERS = [
+      'Team', 'Year', 'Most Recent EPA',
+      'Week 1 OPR', 'Week 2 OPR', 'Week 3 OPR', 'Week 4 OPR',
+      'Week 5 OPR', 'Week 6 OPR', 'Week 7 OPR', 'Worlds OPR',
+      'Off-season 2', 'Off-season 3', 'Off-season 4', 'Off-season 5', 'Off-season 6',
+    ];
 
-    <div style="margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
-      <input id="src" placeholder="Event name, event link, event key, or team number(s), e.g. 3061" style="width: 480px;">
-      <input id="years" placeholder="Year(s), e.g. 2016 or 2022-2026" style="width: 180px;">
-      <button id="go" style="font-weight: bold; padding: 5px 14px;">Load data</button>
-    </div>
+    const round2 = (val) => Math.round(val * 100) / 100;
 
-    <div style="margin-bottom: 8px; display: flex; gap: 6px; align-items: center;">
-      <button id="copy">Copy data</button>
-      <button onclick="debugEpa()">Debug EPA</button>
-    </div>
-
-    <div id="status" style="margin: 8px 0; font-size: 13px;"></div>
-    <pre id="dbg" style="display: none; white-space: pre-wrap; font-size: 12px; background: #f4f4f4; border: 1px solid #ddd; padding: 8px; max-height: 250px; overflow-y: auto;"></pre>
-    <table id="t"></table>
-  </div>
-
-  <!-- ==================== TAB 2: VIDEO ANALYZING ==================== -->
-  <div id="view-analyze" style="display: none;">
-    <h3>Match videos & Video Analyzing</h3>
-
-    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px;">
-      <input id="vteam" placeholder="Team number, e.g. 3061" style="width: 180px;">
-      <input id="vyears" placeholder="Year(s), e.g. 2026 or 2024-2026" style="width: 220px;">
-      <label style="font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-        <input type="checkbox" id="vonly" checked> Only matches that have a video
-      </label>
-      <button id="vgo" style="font-weight: 600; padding: 5px 12px;">Show match videos</button>
-    </div>
-
-    <div id="vstatus" style="margin: 6px 0; font-size: 13px;"></div>
-    <table id="vt"></table>
-  </div>
-
-  <!-- ==================== TAB 3: SAVED REPORTS ==================== -->
-  <div id="view-reports" style="display: none;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <h3 style="margin: 0;">Saved AI Scouting Reports</h3>
-      <button onclick="clearReports()" style="font-size: 12px;">Clear all reports</button>
-    </div>
-    <div id="reports-list"></div>
-  </div>
-
-  <script>
-    // Built-in Supabase Edge Function URL (keeps your GEMINI_API_KEY private inside Supabase)
-    const SUPABASE_URL = "https://hiidxcirfnetdaagfsuh.supabase.co/functions/v1/analyze-video";
-
-    const TBA = "https://www.thebluealliance.com/api/v3", SB = "https://api.statbotics.io/v3";
-    const H = ["Team","Year","Most Recent EPA","Week 1 OPR","Week 2 OPR","Week 3 OPR","Week 4 OPR","Week 5 OPR","Week 6 OPR","Week 7 OPR","Worlds OPR","Off-season 2","Off-season 3","Off-season 4","Off-season 5","Off-season 6"];
-    let rows = [], cache = {}, sortCol = 2, asc = false;
-    let savedReports = JSON.parse(localStorage.getItem("scout_reports") || "[]");
-
-    const $ = id => document.getElementById(id);
-    const r2 = x => Math.round(x * 100) / 100;
-
-    $("key").value = localStorage.getItem("tbakey") || "";
-    updateRepCount();
-
-    function switchTab(tab) {
-      ["data", "analyze", "reports"].forEach(t => {
-        $("view-" + t).style.display = (t === tab) ? "block" : "none";
-      });
-      document.querySelectorAll("nav#tabs button").forEach((b, idx) => {
-        b.className = (["data", "analyze", "reports"][idx] === tab) ? "active" : "";
-      });
-      if (tab === "reports") renderReports();
+    function parseYearExpression(expr) {
+      if (!expr || !expr.trim()) return [new Date().getFullYear()];
+      const cleaned = expr.replace(/\s+/g, '');
+      const years = new Set();
+      for (const part of cleaned.split(',')) {
+        if (!part) continue;
+        if (part.includes('-')) {
+          const [aStr, bStr] = part.split('-');
+          const a = parseInt(aStr, 10);
+          const b = parseInt(bStr, 10);
+          if (!isNaN(a) && !isNaN(b)) {
+            const start = Math.min(a, b);
+            const end = Math.max(a, b);
+            for (let y = start; y <= end; y++) years.add(y);
+          }
+        } else {
+          const y = parseInt(part, 10);
+          if (!isNaN(y)) years.add(y);
+        }
+      }
+      const arr = Array.from(years).sort((a, b) => b - a);
+      return arr.length ? arr : [new Date().getFullYear()];
     }
 
-    function updateRepCount() {
-      $("rep-count").textContent = savedReports.length;
-    }
-
-    async function tba(p) {
-      const k = $("key").value.trim();
-      const headers = k ? { "X-TBA-Auth-Key": k } : {};
-      const r = await fetch(TBA + p, { headers });
-      if (r.status === 401) throw new Error("TBA rejected key (401)");
-      return r.ok ? r.json() : null;
-    }
-
-    function oprs(k) {
-      if (!(k in cache)) cache[k] = tba("/event/" + k + "/oprs").then(d => (d && d.oprs) || {}).catch(() => ({}));
-      return cache[k];
-    }
-
-    function pickEpa(j) {
+    function pickEpaFromPayload(json) {
+      if (!json) return '';
+      let j = json;
       if (Array.isArray(j)) j = j[0];
-      if (Array.isArray(j && j.results)) j = j.results[0];
-      const e = (j && j.epa) || {};
-      const cands = [e.total_points && e.total_points.mean, e.total_points && e.total_points.value, typeof e.total_points === "number" ? e.total_points : null, e.stats && e.stats.end, e.stats && e.stats.pre_champs, j && j.epa_end, j && j.epa_mean];
-      for (const c of cands) if (typeof c === "number") return r2(c);
-      return "";
+      if (Array.isArray(j?.results)) j = j.results[0];
+      if (!j) return '';
+
+      const epaObj = j.epa || {};
+      const candidates = [
+        epaObj.total_points?.mean,
+        epaObj.total_points?.value,
+        typeof epaObj.total_points === 'number' ? epaObj.total_points : null,
+        epaObj.stats?.end,
+        epaObj.stats?.pre_champs,
+        j.epa_end,
+        j.epa_mean,
+        j.stats?.epa?.end,
+        j.recent_epa,
+      ];
+
+      for (const c of candidates) {
+        if (typeof c === 'number' && !isNaN(c)) return round2(c);
+      }
+      return '';
     }
 
-    function epaUrls(team, year, evKey) {
-      const u = [["season lookup", `${SB}/team_year/${team}/${year}`]];
-      if (evKey) u.push(["last-event lookup", `${SB}/team_event/${team}/${evKey}`]);
-      u.push(["team_years lookup", `${SB}/team_years?team=${team}&year=${year}`]);
-      if (evKey) u.push(["event-list lookup", `${SB}/team_events?event=${evKey}&limit=1000`, "list"]);
-      if (evKey) u.push(["event lookup", `${SB}/event/${evKey}`, "list"]);
-      return u;
-    }
-
-    function findTeamEntry(root, team) {
-      const want = String(team);
+    function findTeamEntryInJson(root, teamNum) {
+      const want = String(teamNum);
       const stack = [root];
       while (stack.length) {
         const x = stack.pop();
-        if (x && typeof x === "object") {
+        if (x && typeof x === 'object') {
           if (!Array.isArray(x)) {
             const id = x.team ?? x.team_number ?? x.team_key ?? x.number;
-            if (id != null && String(id).replace("frc", "") === want && pickEpa(x) !== "") return x;
+            if (id != null && String(id).replace(/^frc/i, '') === want && pickEpaFromPayload(x) !== '') {
+              return x;
+            }
           }
-          for (const k in x) stack.push(x[k]);
+          for (const k of Object.keys(x)) {
+            stack.push(x[k]);
+          }
         }
       }
       return null;
     }
 
-    async function epa(team, year, evKey) {
-      for (const [label, u, kind] of epaUrls(team, year, evKey)) {
-        try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 3500);
-          const r = await fetch(u, { signal: controller.signal });
-          clearTimeout(timer);
-          if (!r.ok) continue;
-          let j = await r.json();
-          if (kind === "list") j = findTeamEntry(j, team);
-          const v = pickEpa(j);
-          if (v !== "") return v;
-        } catch (e) {}
-      }
-      return "";
-    }
-
-    async function debugEpa() {
-      const team = ($("src").value.match(/\b\d{1,5}\b/) || [3061])[0];
-      const year = parseYears($("years").value || "2026")[0] || 2026;
-      $("dbg").style.display = "block";
-      let out = `Testing Statbotics for team ${team}, year ${year}\n`;
-      let evKey = "";
+    async function fetchWithTimeout(url, timeoutMs = 4000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const ev = (await tba(`/team/frc${team}/events/${year}/simple`)) || [];
-        ev.sort((a,b) => (a.start_date||"").localeCompare(b.start_date||""));
-        const today = new Date().toISOString().slice(0, 10);
-        const real = ev.filter(e => [0,1,2,3,4,5].includes(e.event_type) && (e.end_date||"9999") <= today);
-        evKey = real.length ? real[real.length - 1].key : "";
-        out += "Last real event per TBA: " + (evKey || "none found") + "\n";
-      } catch (x) { out += "TBA error: " + x.message + "\n"; }
-
-      for (const [label, u] of epaUrls(team, year, evKey)) {
-        out += "\n" + label + ": " + u + "\n";
-        try {
-          const r = await fetch(u);
-          const t = await r.text();
-          out += "HTTP " + r.status + "\n" + t.slice(0, 500) + "\n";
-        } catch (x) { out += "Failed: " + x.message + "\n"; }
-      }
-      $("dbg").textContent = out;
-    }
-
-    async function one(t, year, statboticsState) {
-      const team = t.num;
-      const ev = (await tba(`/team/frc${team}/events/${year}`)) || [];
-      ev.sort((a,b) => (a.start_date||"").localeCompare(b.start_date||""));
-      const today = new Date().toISOString().slice(0, 10);
-      const wk = Array.from({length: 8}, () => []); let worlds = "", off = [];
-
-      for (const e of ev) {
-        if ((e.end_date||"9999") > today) continue;
-        const o = (await oprs(e.key))["frc" + team];
-        if (o == null) continue;
-        const score = r2(o);
-        if (e.event_type === 99) off.push(score);
-        else if (e.event_type === 3) worlds = score;
-        else if ([0,1,2,5].includes(e.event_type) && e.week != null) {
-          const w = e.week + 1;
-          if (w >= 1 && w <= 7) wk[w].push(score);
-        }
-      }
-
-      const real = ev.filter(e => [0,1,2,3,4,5].includes(e.event_type) && (e.end_date||"9999") <= today);
-      const evKey = real.length ? real[real.length - 1].key : "";
-
-      let teamEpa = "";
-      if (!statboticsState.skip) {
-        teamEpa = await epa(team, year, evKey);
-        if (teamEpa === "") {
-          statboticsState.fails++;
-          if (statboticsState.fails >= 2) statboticsState.skip = true;
-        } else {
-          statboticsState.fails = 0;
-        }
-      }
-
-      const row = [team + (t.name ? " - " + t.name : ""), year, teamEpa];
-      for (let w = 1; w <= 7; w++) row.push(wk[w].length ? wk[w][wk[w].length - 1] : "");
-      row.push(worlds);
-      for (let i = 0; i < 5; i++) row.push(i < off.length ? off[i] : "");
-      return row;
-    }
-
-    function parseYears(txt) {
-      const out = new Set();
-      for (const part of (txt||"").split(/[,\s]+/).filter(Boolean)) {
-        const m = part.match(/^(\d{4})-(\d{4})$/);
-        if (m) {
-          let a = +m[1], b = +m[2]; if (a > b) [a, b] = [b, a];
-          for (let y = a; y <= b && y - a < 30; y++) out.add(y);
-        } else if (/^\d{4}$/.test(part)) out.add(+part);
-      }
-      return [...out];
-    }
-
-    async function teamsFromEvent(key) {
-      const teams = await tba(`/event/${key}/teams/simple`);
-      if (!teams || !teams.length) throw new Error(`No teams found for event ${key}`);
-      return teams.map(t => ({ num: t.team_number, name: t.nickname })).sort((a,b) => a.num - b.num);
-    }
-
-    async function resolveTeams(input, rosterYear) {
-      input = input.trim();
-      if (!input) throw new Error("Enter an event name, event link, event key, or team number(s)");
-      if (/^[\d,\s]+$/.test(input)) {
-        const nums = [...new Set((input.match(/\d+/g) || []).map(Number))];
-        const out = [];
-        for (const n of nums) {
-          const s = await tba(`/team/frc${n}/simple`);
-          out.push({ num: n, name: s ? s.nickname : "" });
-        }
-        return out;
-      }
-      let m = input.match(/frc-events\.firstinspires\.org\/(\d{4})\/([A-Za-z0-9]+)/i);
-      if (m) return teamsFromEvent(m[1] + m[2].toLowerCase());
-      m = input.match(/thebluealliance\.com\/event\/(\d{4}[A-Za-z0-9]+)/i);
-      if (m) return teamsFromEvent(m[1].toLowerCase());
-      if (/^\d{4}(?=[a-z0-9]*[a-z])[a-z0-9]+$/i.test(input)) return teamsFromEvent(input.toLowerCase());
-      const evs = (await tba(`/events/${rosterYear}/simple`)) || [];
-      const words = input.toLowerCase().split(/\s+/);
-      const hits = evs.filter(e => words.every(w => (e.name + " " + e.key).toLowerCase().includes(w)));
-      if (!hits.length) throw new Error(`No ${rosterYear} event found matching "${input}"`);
-      const pick = hits.length === 1 ? hits[0] : (hits.find(e => e.name.toLowerCase() === input.toLowerCase()) || hits[0]);
-      $("status").textContent = "Using event: " + pick.name + " (" + pick.key + ")";
-      return teamsFromEvent(pick.key);
-    }
-
-    $("go").onclick = async () => {
-      localStorage.setItem("tbakey", $("key").value.trim());
-      rows = []; cache = {}; render();
-      try {
-        const years = parseYears($("years").value.trim() || "2026");
-        $("status").className = ""; $("status").textContent = "Finding teams...";
-        const teams = await resolveTeams($("src").value, years[0]);
-        const tasks = [];
-        for (const t of teams) for (const y of years) tasks.push([t, y]);
-        const statboticsState = { fails: 0, skip: false };
-        for (let i = 0; i < tasks.length; i += 5) {
-          $("status").textContent = `Loading ${Math.min(i + 5, tasks.length)}/${tasks.length}...`;
-          const chunk = await Promise.all(tasks.slice(i, i + 5).map(([t, y]) => one(t, y, statboticsState)));
-          rows.push(...chunk);
-          render();
-        }
-        $("status").className = "ok"; $("status").textContent = "Done.";
-      } catch (e) {
-        $("status").className = "err"; $("status").textContent = "Error: " + e.message;
-      }
-    };
-
-    function render() {
-      let v = rows;
-      if (sortCol >= 0) {
-        v = [...v].sort((a,b) => {
-          const x = a[sortCol], y = b[sortCol];
-          if (x === "" && y === "") return 0; if (x === "") return 1; if (y === "") return -1;
-          const c = (typeof x === "number") ? x - y : String(x).localeCompare(String(y));
-          return asc ? c : -c;
-        });
-      }
-      const cell = (c, i) => {
-        if (i === 0) {
-          const m = String(c).match(/^(\d+)(?: - (.*))?$/);
-          return m ? `<td><b class="n">${m[1]}</b>${esc(m[2]||"")}</td>` : `<td>${esc(c)}</td>`;
-        }
-        return `<td${i===2 ? ' class="epa"' : ""}>${esc(c)}</td>`;
-      };
-      $("t").innerHTML = rows.length ? ("<tr>" + H.map((h, i) => `<th onclick="sortBy(${i})">${h}${sortCol === i ? (asc ? " ▲" : " ▼") : ""}</th>`).join("") + "</tr>" + v.map(r => "<tr>" + r.map(cell).join("") + "</tr>").join("")) : "";
-    }
-
-    function sortBy(i) { asc = (sortCol === i) ? !asc : (i === 0 || i === 1); sortCol = i; render(); }
-
-    $("copy").onclick = async () => {
-      if (!rows.length) { $("status").className = "err"; $("status").textContent = "Nothing to copy yet. Load data first."; return; }
-      const text = [H.join("\t"), ...rows.map(r => r.join("\t"))].join("\n");
-      try { await navigator.clipboard.writeText(text); }
-      catch (e) {
-        const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
-      }
-      $("status").className = "ok"; $("status").textContent = `Copied all data (${rows.length} rows, all columns) to clipboard!`;
-    };
-
-    const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-
-    function matchLabel(m) {
-      const L = {qm:"Qualification", ef:"Eighthfinal", qf:"Quarterfinal", sf:"Semifinal", f:"Final"};
-      const n = L[m.comp_level] || m.comp_level;
-      return m.comp_level === "qm" ? `${n} ${m.match_number}` : `${n} ${m.set_number}-${m.match_number}`;
-    }
-
-    // ==================== MATCH VIDEOS ====================
-    let videoList = [];
-    $("vgo").onclick = async () => {
-      localStorage.setItem("tbakey", $("key").value.trim());
-      $("vt").innerHTML = ""; videoList = [];
-      const num = ($("vteam").value.match(/\d+/) || [])[0];
-      const years = parseYears($("vyears").value.trim() || "2026");
-      if (!num) { $("vstatus").className = "err"; $("vstatus").textContent = "Enter a team number."; return; }
-      const onlyVideo = $("vonly").checked;
-      const me = "frc" + num;
-      try {
-        $("vstatus").className = ""; $("vstatus").textContent = `Loading match videos for team ${num}...`;
-        for (const y of years) {
-          const evs = (await tba(`/team/${me}/events/${y}/simple`)) || [];
-          const evMap = {}; evs.forEach(e => evMap[e.key] = e);
-          const ms = (await tba(`/team/${me}/matches/${y}`)) || [];
-          for (const m of ms) {
-            const vids = (m.videos || []).filter(v => v.type === "youtube");
-            if (onlyVideo && !vids.length) continue;
-            const color = (m.alliances?.red?.team_keys || []).includes(me) ? "red" : "blue";
-            const opp = color === "red" ? "blue" : "red";
-            const mine = m.alliances?.[color]?.score, theirs = m.alliances?.[opp]?.score;
-            let result = "";
-            if (mine != null && theirs != null && mine >= 0 && theirs >= 0) result = mine > theirs ? "Win" : (mine < theirs ? "Loss" : "Tie");
-            const ev = evMap[m.event_key] || {};
-            const ytKey = vids.length ? vids[0].key : "";
-            videoList.push({ year: y, event: ev.name || m.event_key, label: matchLabel(m), alliance: color, score: (mine >= 0 ? `${mine} - ${theirs}` : ""), result, ytKey, url: ytKey ? `https://www.youtube.com/watch?v=${ytKey}` : "", time: m.time || 0, date: ev.start_date || "" });
-          }
-        }
-        videoList.sort((a,b) => (b.date + ("0000000000" + b.time).slice(-10)).localeCompare(a.date + ("0000000000" + a.time).slice(-10)));
-        if (!videoList.length) {
-          $("vstatus").textContent = `No ${onlyVideo ? "video " : ""}matches found for team ${num}.`;
-        } else {
-          $("vstatus").textContent = `${videoList.length} match(es) for team ${num}. Newest first.`;
-          renderVideoTable(num);
-        }
-      } catch (e) {
-        $("vstatus").className = "err"; $("vstatus").textContent = "Error: " + e.message;
-      }
-    };
-
-    function renderVideoTable(teamNum) {
-      $("vt").innerHTML = "<tr><th>Year</th><th>Event</th><th>Match</th><th>Alliance</th><th>Score</th><th>Result</th><th>Video & Analysis</th></tr>"
-        + videoList.map((m, idx) => `
-          <tr>
-            <td>${m.year}</td><td>${esc(m.event)}</td><td>${esc(m.label)}</td>
-            <td class="${m.alliance}">${m.alliance}</td><td>${m.score}</td>
-            <td class="${m.result === "Win" ? "win" : (m.result === "Loss" ? "loss" : "")}">${m.result}</td>
-            <td>
-              ${m.url ? `
-                <a href="${m.url}" target="_blank" rel="noopener" style="color: #0066cc;">Watch</a>
-                <span style="font-size: 11px; color: #666; margin-left: 6px;">
-                  Clip: <input id="c-st-${idx}" placeholder="start" style="width: 36px; padding: 1px 3px; font-size: 11px;"> - 
-                  <input id="c-en-${idx}" placeholder="end" style="width: 36px; padding: 1px 3px; font-size: 11px;">s
-                </span>
-                <button onclick="analyzeMatch(${idx}, '${teamNum}')" style="margin-left: 6px; font-size: 11px;">Analyze</button>
-                <div id="notes-${idx}" style="display: none; margin-top: 6px; padding: 6px; background: #fafafa; border: 1px solid #ddd; font-size: 12px;"></div>
-              ` : 'no video'}
-            </td>
-          </tr>
-        `).join("");
-    }
-
-    // Call Supabase Edge Function to analyze
-    async function analyzeMatch(idx, teamNum) {
-      const m = videoList[idx];
-      const notesEl = $("notes-" + idx);
-      notesEl.style.display = "block";
-      notesEl.innerHTML = "<i>Analyzing match video with Gemini AI...</i>";
-
-      const clipStart = $(`c-st-${idx}`)?.value || "";
-      const clipEnd = $(`c-en-${idx}`)?.value || "";
-
-      try {
-        const res = await fetch(SUPABASE_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoUrl: m.url, teamNumber: Number(teamNum), eventName: m.event, matchLabel: m.label, alliance: m.alliance, score: m.score, clipStart, clipEnd, year: m.year
-          })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Analysis failed");
-
-        const rep = data.data || data;
-        rep.team = teamNum; rep.match = m.label; rep.event = m.event; rep.url = m.url; rep.time = new Date().toLocaleTimeString();
-
-        // Save to reports
-        savedReports.unshift(rep);
-        localStorage.setItem("scout_reports", JSON.stringify(savedReports));
-        updateRepCount();
-
-        notesEl.innerHTML = `
-          <b>Tactical Scouting Report:</b><br>
-          ${rep.summary || ""}<br>
-          <b>Auto (${rep.auto?.rating || 7}/10):</b> ${rep.auto?.description || ""}<br>
-          <b>Teleop (${rep.teleop?.rating || 8}/10):</b> ${rep.teleop?.description || ""}<br>
-          <b>Endgame (${rep.endgame?.rating || 7}/10):</b> ${rep.endgame?.description || ""}<br>
-          <b>Alliance Verdict:</b> ${rep.alliancePickRecommendation || "Recommended partner."}
-        `;
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        return res;
       } catch (err) {
-        notesEl.innerHTML = `<span style="color: #b00;"><b>Error:</b> ${err.message}</span>`;
+        clearTimeout(timer);
+        throw err;
       }
     }
 
-    function renderReports() {
-      const list = $("reports-list");
-      if (!savedReports.length) {
-        list.innerHTML = "<div style='padding: 20px; border: 1px solid #ccc; background: #fafafa; text-align: center; color: #666;'>No saved reports yet. Go to Video Analyzing and click Analyze next to any match.</div>";
-        return;
-      }
-      list.innerHTML = savedReports.map((r, i) => `
-        <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; background: #fff; font-size: 12px;">
-          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 4px; margin-bottom: 6px;">
-            <b>Team ${r.team} — ${r.match} (${r.event})</b>
-            <span style="color: #666;">${r.time}</span>
+    function App() {
+      const [activeTab, setActiveTab] = useState('data');
+      const [tbaKey, setTbaKey] = useState(() => localStorage.getItem('tbakey') || '');
+      const [functionUrl, setFunctionUrl] = useState(() => localStorage.getItem('supabase_function_url') || DEFAULT_SUPABASE_URL);
+
+      // Tab 1: Data / Matrix
+      const [sourceInput, setSourceInput] = useState('');
+      const [yearsInput, setYearsInput] = useState('');
+      const [matrixRows, setMatrixRows] = useState([]);
+      const [statusMessage, setStatusMessage] = useState('');
+      const [statusType, setStatusType] = useState('normal');
+      const [loadingMatrix, setLoadingMatrix] = useState(false);
+      const [sortCol, setSortCol] = useState(2);
+      const [sortAsc, setSortAsc] = useState(false);
+
+      // Debug EPA
+      const [showDebug, setShowDebug] = useState(false);
+      const [debugOutput, setDebugOutput] = useState('');
+      const [loadingDebug, setLoadingDebug] = useState(false);
+
+      // Tab 2: Video Analyzing
+      const [vTeam, setVTeam] = useState('3061');
+      const [vYears, setVYears] = useState('2024');
+      const [vOnlyVideo, setVOnlyVideo] = useState(true);
+      const [vStatus, setVStatus] = useState('');
+      const [vStatusType, setVStatusType] = useState('normal');
+      const [loadingVideos, setLoadingVideos] = useState(false);
+      const [videoMatches, setVideoMatches] = useState([]);
+      const [clipTimes, setClipTimes] = useState({});
+      const [analyzingKey, setAnalyzingKey] = useState(null);
+      const [analysisResults, setAnalysisResults] = useState({});
+      const [activeAnalysisView, setActiveAnalysisView] = useState(null);
+
+      // Tab 3: Saved Reports
+      const [savedReports, setSavedReports] = useState(() => {
+        try {
+          return JSON.parse(localStorage.getItem('frc_saved_reports') || '[]');
+        } catch {
+          return [];
+        }
+      });
+
+      useEffect(() => {
+        localStorage.setItem('tbakey', tbaKey.trim());
+      }, [tbaKey]);
+
+      useEffect(() => {
+        localStorage.setItem('supabase_function_url', functionUrl.trim());
+      }, [functionUrl]);
+
+      useEffect(() => {
+        localStorage.setItem('frc_saved_reports', JSON.stringify(savedReports));
+      }, [savedReports]);
+
+      const fetchTBA = async (endpoint) => {
+        const key = tbaKey.trim();
+        const headers = key ? { 'X-TBA-Auth-Key': key } : {};
+        const res = await fetch(`${TBA_BASE}${endpoint}`, { headers });
+        if (res.status === 401) throw new Error('TBA rejected API key (401 Unauthorized)');
+        if (!res.ok) {
+          if (res.status === 404) return null;
+          throw new Error(`TBA error HTTP ${res.status}`);
+        }
+        return res.json();
+      };
+
+      const fetchEpaWithFallbacks = async (team, year, lastEventKey) => {
+        const candidates = [
+          { label: 'season lookup', url: `${SB_BASE}/team_year/${team}/${year}` },
+          ...(lastEventKey ? [{ label: 'last-event lookup', url: `${SB_BASE}/team_event/${team}/${lastEventKey}` }] : []),
+          { label: 'team_years lookup', url: `${SB_BASE}/team_years?team=${team}&year=${year}` },
+          ...(lastEventKey ? [{ label: 'event-list lookup', url: `${SB_BASE}/team_events?event=${lastEventKey}&limit=1000`, isList: true }] : []),
+        ];
+
+        for (const { label, url, isList } of candidates) {
+          try {
+            const response = await fetchWithTimeout(url, 3500);
+            if (!response.ok) continue;
+            const json = await response.json();
+            if (isList) {
+              const entry = findTeamEntryInJson(json, team);
+              if (entry) {
+                const val = pickEpaFromPayload(entry);
+                if (val !== '') return { value: val, details: label };
+              }
+            } else {
+              const val = pickEpaFromPayload(json);
+              if (val !== '') return { value: val, details: label };
+            }
+          } catch (err) {}
+        }
+        return { value: '', details: 'all lookups failed' };
+      };
+
+      const resolveTeams = async (inputStr, rosterYear) => {
+        const trimmed = inputStr.trim();
+        if (!trimmed) throw new Error('Enter an event name, event link, event key, or team number(s)');
+
+        if (/^[\d,\s]+$/.test(trimmed)) {
+          const numbers = Array.from(new Set((trimmed.match(/\d+/g) || []).map(Number)));
+          const out = [];
+          for (const n of numbers) {
+            try {
+              const s = await fetchTBA(`/team/frc${n}/simple`);
+              out.push({ num: n, name: s ? s.nickname : '' });
+            } catch {
+              out.push({ num: n, name: '' });
+            }
+          }
+          return out;
+        }
+
+        let m = trimmed.match(/frc-events\.firstinspires\.org\/(\d{4})\/([A-Za-z0-9]+)/i);
+        if (m) return teamsFromEvent(m[1] + m[2].toLowerCase());
+        m = trimmed.match(/thebluealliance\.com\/event\/(\d{4}[A-Za-z0-9]+)/i);
+        if (m) return teamsFromEvent(m[1].toLowerCase());
+
+        if (/^\d{4}(?=[a-z0-9]*[a-z])[a-z0-9]+$/i.test(trimmed)) {
+          return teamsFromEvent(trimmed.toLowerCase());
+        }
+
+        const evs = (await fetchTBA(`/events/${rosterYear}/simple`)) || [];
+        const words = trimmed.toLowerCase().split(/\s+/);
+        const hits = evs.filter((e) => words.every((w) => `${e.name} ${e.key}`.toLowerCase().includes(w)));
+        if (!hits.length) throw new Error(`No ${rosterYear} event found matching "${trimmed}"`);
+        let pick = hits.length === 1 ? hits[0] : hits.find((e) => e.name.toLowerCase() === trimmed.toLowerCase());
+        if (!pick) pick = hits[0];
+
+        setStatusMessage(`Using event: ${pick.name} (${pick.key})`);
+        return teamsFromEvent(pick.key);
+      };
+
+      const teamsFromEvent = async (eventKey) => {
+        const teams = await fetchTBA(`/event/${eventKey}/teams/simple`);
+        if (!teams || !teams.length) throw new Error(`No teams found for event ${eventKey}`);
+        return teams.map((t) => ({ num: t.team_number, name: t.nickname || '' })).sort((a, b) => a.num - b.num);
+      };
+
+      const handleLoadData = async () => {
+        setLoadingMatrix(true);
+        setStatusMessage('Loading...');
+        setStatusType('normal');
+        try {
+          const years = parseYearExpression(yearsInput);
+          const rosterYear = years[0];
+          const teams = await resolveTeams(sourceInput, rosterYear);
+
+          const rows = [];
+          for (const team of teams) {
+            for (const yr of years) {
+              const ev = (await fetchTBA(`/team/frc${team.num}/events/${yr}`)) || [];
+              ev.sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''));
+
+              const wk = Array.from({ length: 8 }, () => []);
+              let worlds = '';
+              const off = [];
+              let lastEventKey = '';
+
+              for (const e of ev) {
+                lastEventKey = e.key;
+                const oprData = await fetchTBA(`/event/${e.key}/oprs`).catch(() => ({}));
+                const opr = oprData?.oprs?.[`frc${team.num}`] ?? oprData?.oprs?.[team.num];
+                const roundedOpr = typeof opr === 'number' ? round2(opr) : '';
+
+                if (roundedOpr !== '') {
+                  if (e.event_type >= 0 && e.event_type <= 2) {
+                    const w = e.week != null ? e.week : 0;
+                    if (w >= 0 && w < 8) wk[w].push(roundedOpr);
+                  } else if (e.event_type === 3 || e.event_type === 4) {
+                    worlds = roundedOpr;
+                  } else {
+                    off.push(roundedOpr);
+                  }
+                }
+              }
+
+              let epa = '';
+              try {
+                const epaRes = await fetchEpaWithFallbacks(team.num, yr, lastEventKey);
+                epa = epaRes.value;
+              } catch (e) {}
+
+              rows.push({
+                teamNumber: team.num,
+                teamName: team.name,
+                year: yr,
+                epa: epa !== '' ? epa : '',
+                week1: wk[0]?.[wk[0].length - 1] ?? '',
+                week2: wk[1]?.[wk[1].length - 1] ?? '',
+                week3: wk[2]?.[wk[2].length - 1] ?? '',
+                week4: wk[3]?.[wk[3].length - 1] ?? '',
+                week5: wk[4]?.[wk[4].length - 1] ?? '',
+                week6: wk[5]?.[wk[5].length - 1] ?? '',
+                week7: wk[6]?.[wk[6].length - 1] ?? '',
+                worlds,
+                offseason: off.slice(0, 5),
+              });
+            }
+          }
+
+          setMatrixRows(rows);
+          setStatusMessage(`Loaded ${rows.length} rows successfully.`);
+          setStatusType('ok');
+        } catch (err) {
+          setStatusMessage(err.message || 'Error loading data');
+          setStatusType('err');
+        } finally {
+          setLoadingMatrix(false);
+        }
+      };
+
+      const handleCopyData = () => {
+        if (!matrixRows.length) return;
+        const lines = [HEADERS.join('\t')];
+        for (const r of matrixRows) {
+          const rowData = [
+            `${r.teamNumber} ${r.teamName || ''}`.trim(),
+            r.year,
+            r.epa,
+            r.week1, r.week2, r.week3, r.week4, r.week5, r.week6, r.week7,
+            r.worlds,
+            ...(r.offseason || [])
+          ];
+          lines.push(rowData.join('\t'));
+        }
+        navigator.clipboard.writeText(lines.join('\n'));
+        setStatusMessage('Table copied to clipboard (TSV format)!');
+        setStatusType('ok');
+      };
+
+      const handleDebugEpa = async () => {
+        setShowDebug(true);
+        setLoadingDebug(true);
+        setDebugOutput('Testing Statbotics connection...');
+        try {
+          const test = await fetchWithTimeout(`${SB_BASE}/team_year/3061/2024`, 4000);
+          if (test.ok) {
+            const data = await test.json();
+            setDebugOutput(`SUCCESS! Direct Statbotics connection working.\nSample EPA data for 3061 (2024):\n${JSON.stringify(data, null, 2)}`);
+          } else {
+            setDebugOutput(`HTTP ${test.status} from Statbotics.`);
+          }
+        } catch (err) {
+          setDebugOutput(`Error testing Statbotics: ${err.message}`);
+        } finally {
+          setLoadingDebug(false);
+        }
+      };
+
+      const handleShowMatchVideos = async () => {
+        const teamNum = parseInt(vTeam.trim(), 10);
+        if (isNaN(teamNum)) {
+          setVStatus('Please enter a valid team number');
+          setVStatusType('err');
+          return;
+        }
+
+        setLoadingVideos(true);
+        setVStatus('Loading match videos...');
+        setVStatusType('normal');
+        setVideoMatches([]);
+
+        try {
+          const years = parseYearExpression(vYears);
+          const allMatches = [];
+
+          for (const yr of years) {
+            const evs = (await fetchTBA(`/team/frc${teamNum}/events/${yr}`)) || [];
+            evs.sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''));
+
+            for (const ev of evs) {
+              const mList = (await fetchTBA(`/team/frc${teamNum}/event/${ev.key}/matches`)) || [];
+              for (const m of mList) {
+                const redKeys = m.alliances?.red?.team_keys || [];
+                const blueKeys = m.alliances?.blue?.team_keys || [];
+                const myKey = `frc${teamNum}`;
+                const isRed = redKeys.includes(myKey);
+                const isBlue = blueKeys.includes(myKey);
+                if (!isRed && !isBlue) continue;
+
+                const alliance = isRed ? 'red' : 'blue';
+                const redScore = m.alliances?.red?.score ?? 0;
+                const blueScore = m.alliances?.blue?.score ?? 0;
+                const myScore = isRed ? redScore : blueScore;
+                const oppScore = isRed ? blueScore : redScore;
+
+                let result = '';
+                if (myScore > oppScore) result = 'Win';
+                else if (myScore < oppScore) result = 'Loss';
+                else if (myScore === oppScore && myScore > 0) result = 'Tie';
+
+                const ytVideo = (m.videos || []).find((v) => v.type === 'youtube');
+                const videoUrl = ytVideo ? `https://www.youtube.com/watch?v=${ytVideo.key}` : '';
+
+                if (vOnlyVideo && !videoUrl) continue;
+
+                const slot = isRed ? redKeys.indexOf(myKey) + 1 : blueKeys.indexOf(myKey) + 1;
+                const stationName = `${alliance.toUpperCase()} ${slot}`;
+
+                let barcode = stationName;
+                if (slot === 1) barcode += ' (Amp Wall / Stage Left)';
+                else if (slot === 2) barcode += ' (Subwoofer Center / Middle)';
+                else if (slot === 3) barcode += ' (Source Side / Stage Right)';
+
+                const partners = (isRed ? redKeys : blueKeys)
+                  .filter((k) => k !== myKey)
+                  .map((k) => k.replace('frc', ''))
+                  .join(', ');
+                const opponents = (isRed ? blueKeys : redKeys)
+                  .map((k) => k.replace('frc', ''))
+                  .join(', ');
+
+                const breakdown = m.score_breakdown?.[alliance] || {};
+                let autoLeave = 'Unknown';
+                const autoLine = breakdown[`autoLineRobot${slot}`];
+                const autoMobility = breakdown[`autoMobilityRobot${slot}`] || breakdown[`mobilityRobot${slot}`];
+                if (autoLine === 'Yes' || autoMobility === 'Yes' || autoMobility === true) {
+                  autoLeave = 'Verified Left Starting Line';
+                } else if (autoLine === 'No' || autoMobility === 'No' || autoMobility === false) {
+                  autoLeave = 'Did NOT Leave Starting Line';
+                }
+
+                const endgame = breakdown[`endGameRobot${slot}`] || 'Unknown';
+
+                allMatches.push({
+                  year: yr,
+                  eventKey: ev.key,
+                  eventName: ev.name || ev.key,
+                  matchKey: m.key,
+                  label: `${m.comp_level.toUpperCase()} ${m.match_number}`,
+                  compLevel: m.comp_level,
+                  matchNumber: m.match_number,
+                  alliance,
+                  score: `${myScore} - ${oppScore}`,
+                  result,
+                  youtubeKey: ytVideo?.key || '',
+                  videoUrl,
+                  telemetry: {
+                    station: stationName,
+                    stationSlot: slot,
+                    stationBarcode: barcode,
+                    partners,
+                    opponents,
+                    autoLeave,
+                    endgame,
+                    autoPoints: breakdown.autoPoints ?? null,
+                    teleopPoints: breakdown.teleopPoints ?? null,
+                    endgamePoints: breakdown.endGamePoints ?? null,
+                    totalPoints: breakdown.totalPoints ?? myScore,
+                  }
+                });
+              }
+            }
+          }
+
+          const levelOrder = { qm: 1, ef: 2, qf: 3, sf: 4, f: 5 };
+          allMatches.sort((a, b) => {
+            if (b.year !== a.year) return b.year - a.year;
+            const diff = (levelOrder[a.compLevel] || 99) - (levelOrder[b.compLevel] || 99);
+            if (diff !== 0) return diff;
+            return a.matchNumber - b.matchNumber;
+          });
+
+          setVideoMatches(allMatches);
+          setVStatus(`Found ${allMatches.length} matches with video.`);
+          setVStatusType('ok');
+        } catch (err) {
+          setVStatus(err.message || 'Error loading match videos');
+          setVStatusType('err');
+        } finally {
+          setLoadingVideos(false);
+        }
+      };
+
+      const handleAnalyzeVideo = async (m) => {
+        if (!m.videoUrl) {
+          alert('No YouTube video available for this match.');
+          return;
+        }
+
+        setAnalyzingKey(m.matchKey);
+        setVStatus(`Analyzing ${m.label} with AI (Ground-truth barcode: ${m.telemetry?.stationBarcode || m.alliance})...`);
+        setVStatusType('normal');
+
+        const clip = clipTimes[m.matchKey] || { start: '', end: '' };
+        const payload = {
+          videoUrl: m.videoUrl,
+          teamNumber: parseInt(vTeam.trim(), 10),
+          teamName: `Team ${vTeam.trim()}`,
+          eventName: m.eventName,
+          matchLabel: m.label,
+          alliance: m.alliance,
+          score: m.score,
+          year: String(m.year),
+          clipStart: clip.start || undefined,
+          clipEnd: clip.end || undefined,
+          telemetry: m.telemetry,
+        };
+
+        try {
+          const res = await fetch(functionUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`Edge function failed (${res.status}): ${errText}`);
+          }
+
+          const resData = await res.json();
+          const report = resData.data || resData;
+
+          const completeReport = {
+            ...report,
+            matchKey: m.matchKey,
+            teamNumber: parseInt(vTeam.trim(), 10),
+            matchLabel: m.label,
+            videoUrl: m.videoUrl,
+            alliance: m.alliance,
+            analyzedAt: new Date().toLocaleString(),
+          };
+
+          setAnalysisResults((prev) => ({ ...prev, [m.matchKey]: completeReport }));
+          setActiveAnalysisView(m.matchKey);
+
+          setSavedReports((prev) => {
+            const filtered = prev.filter((r) => r.matchKey !== m.matchKey);
+            return [completeReport, ...filtered];
+          });
+
+          setVStatus(`Analysis complete for ${m.label}!`);
+          setVStatusType('ok');
+        } catch (err) {
+          setVStatus(`Analysis error: ${err.message}`);
+          setVStatusType('err');
+        } finally {
+          setAnalyzingKey(null);
+        }
+      };
+
+      const sortedRows = useMemo(() => {
+        if (!matrixRows.length) return [];
+        return [...matrixRows].sort((a, b) => {
+          let valA, valB;
+          if (sortCol === 0) {
+            valA = a.teamNumber; valB = b.teamNumber;
+          } else if (sortCol === 1) {
+            valA = a.year; valB = b.year;
+          } else if (sortCol === 2) {
+            valA = a.epa === '' ? -999 : Number(a.epa);
+            valB = b.epa === '' ? -999 : Number(b.epa);
+          } else {
+            valA = 0; valB = 0;
+          }
+          if (valA < valB) return sortAsc ? -1 : 1;
+          if (valA > valB) return sortAsc ? 1 : -1;
+          return 0;
+        });
+      }, [matrixRows, sortCol, sortAsc]);
+
+      const sortBy = (colIdx) => {
+        if (sortCol === colIdx) {
+          setSortAsc(!sortAsc);
+        } else {
+          setSortCol(colIdx);
+          setSortAsc(false);
+        }
+      };
+
+      return (
+        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>FRC Scouting</h2>
+            <div style={{ fontSize: '12px', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>Edge Function:</span>
+              <input
+                className="input-txt"
+                value={functionUrl}
+                onChange={(e) => setFunctionUrl(e.target.value)}
+                style={{ width: '280px', fontSize: '11px', padding: '2px 6px' }}
+                title="Supabase Edge Function endpoint"
+              />
+            </div>
           </div>
-          <div><b>Summary:</b> ${r.summary || ""}</div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px; margin: 6px 0;">
-            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Auto (${r.auto?.rating || 7}/10):</b> ${r.auto?.description || ""}</div>
-            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Teleop (${r.teleop?.rating || 8}/10):</b> ${r.teleop?.description || ""}</div>
-            <div style="padding: 4px; background: #f9f9f9; border: 1px solid #ddd;"><b>Endgame (${r.endgame?.rating || 7}/10):</b> ${r.endgame?.description || ""}</div>
+
+          <div className="tabs">
+            <button className={`tab-btn ${activeTab === 'data' ? 'active' : ''}`} onClick={() => setActiveTab('data')}>
+              Data
+            </button>
+            <button className={`tab-btn ${activeTab === 'analyze' ? 'active' : ''}`} onClick={() => setActiveTab('analyze')}>
+              Video Analyzing
+            </button>
+            <button className={`tab-btn ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => setActiveTab('reports')}>
+              Saved Reports {savedReports.length > 0 ? `(${savedReports.length})` : ''}
+            </button>
           </div>
-          <div><b>Alliance Verdict:</b> ${r.alliancePickRecommendation || ""}</div>
+
+          {/* TAB 1: DATA */}
+          {activeTab === 'data' && (
+            <div>
+              <div style={{ marginBottom: '8px' }}>
+                <input
+                  id="key"
+                  className="input-txt"
+                  placeholder="TBA API key"
+                  value={tbaKey}
+                  onChange={(e) => setTbaKey(e.target.value)}
+                  style={{ width: '340px' }}
+                />
+                <span style={{ fontSize: '11px', color: '#666', marginLeft: '8px' }}>
+                  (saved in your browser)
+                </span>
+              </div>
+
+              <div style={{ marginBottom: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                <input
+                  id="src"
+                  className="input-txt"
+                  placeholder="Event name, event link, event key, or team number(s), e.g. 3061"
+                  value={sourceInput}
+                  onChange={(e) => setSourceInput(e.target.value)}
+                  style={{ width: '460px' }}
+                />
+                <input
+                  id="years"
+                  className="input-txt"
+                  placeholder="Year(s), e.g. 2016 or 2022-2026"
+                  value={yearsInput}
+                  onChange={(e) => setYearsInput(e.target.value)}
+                  style={{ width: '160px' }}
+                />
+                <button id="go" className="btn" onClick={handleLoadData} disabled={loadingMatrix} style={{ fontWeight: '600' }}>
+                  {loadingMatrix ? 'Loading...' : 'Load data'}
+                </button>
+              </div>
+
+              <div style={{ marginBottom: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button id="copy" className="btn" onClick={handleCopyData}>
+                  Copy data
+                </button>
+                <button className="btn" onClick={handleDebugEpa}>
+                  Debug EPA
+                </button>
+              </div>
+
+              {statusMessage && (
+                <div id="status" style={{ margin: '8px 0', fontSize: '13px' }} className={`status-${statusType}`}>
+                  {statusMessage}
+                </div>
+              )}
+
+              {showDebug && (
+                <div className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong>EPA Diagnostic Log:</strong>
+                    <button className="btn" style={{ padding: '2px 6px', fontSize: '11px' }} onClick={() => setShowDebug(false)}>
+                      Close Log
+                    </button>
+                  </div>
+                  <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#f4f4f4', padding: '8px', marginTop: '6px' }}>
+                    {loadingDebug ? 'Testing Statbotics connection...' : debugOutput}
+                  </pre>
+                </div>
+              )}
+
+              <table id="t">
+                <thead>
+                  <tr>
+                    {HEADERS.map((h, i) => (
+                      <th
+                        key={h}
+                        onClick={() => sortBy(i)}
+                        style={{
+                          textAlign: i === 0 ? 'left' : 'right',
+                          backgroundColor: sortCol === i ? '#e2e2e2' : '#eee',
+                        }}
+                      >
+                        {h} {sortCol === i ? (sortAsc ? ' ▲' : ' ▼') : ''}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={HEADERS.length} style={{ textAlign: 'center', color: '#666', padding: '16px' }}>
+                        {loadingMatrix ? 'Loading data...' : 'No data loaded yet. Enter event or teams above and click Load data.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedRows.map((r, idx) => (
+                      <tr key={`${r.teamNumber}-${r.year}-${idx}`}>
+                        <td style={{ textAlign: 'left' }}>
+                          <b style={{ marginRight: '8px' }}>{r.teamNumber}</b>
+                          {r.teamName || ''}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>{r.year}</td>
+                        <td style={{ textAlign: 'right', backgroundColor: '#f5f9ff', fontWeight: r.epa !== '' ? 'bold' : 'normal' }}>
+                          {r.epa}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>{r.week1}</td>
+                        <td style={{ textAlign: 'right' }}>{r.week2}</td>
+                        <td style={{ textAlign: 'right' }}>{r.week3}</td>
+                        <td style={{ textAlign: 'right' }}>{r.week4}</td>
+                        <td style={{ textAlign: 'right' }}>{r.week5}</td>
+                        <td style={{ textAlign: 'right' }}>{r.week6}</td>
+                        <td style={{ textAlign: 'right' }}>{r.week7}</td>
+                        <td style={{ textAlign: 'right' }}>{r.worlds}</td>
+                        {r.offseason.map((off, oIdx) => (
+                          <td key={oIdx} style={{ textAlign: 'right' }}>{off}</td>
+                        ))}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* TAB 2: VIDEO ANALYZING */}
+          {activeTab === 'analyze' && (
+            <div>
+              <h3 style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 'bold' }}>
+                Match videos & Video Analyzing
+              </h3>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                <input
+                  id="vteam"
+                  className="input-txt"
+                  placeholder="Team number, e.g. 3061"
+                  value={vTeam}
+                  onChange={(e) => setVTeam(e.target.value)}
+                  style={{ width: '180px' }}
+                />
+                <input
+                  id="vyears"
+                  className="input-txt"
+                  placeholder="Year(s), e.g. 2026 or 2024-2026"
+                  value={vYears}
+                  onChange={(e) => setVYears(e.target.value)}
+                  style={{ width: '220px' }}
+                />
+                <label style={{ fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <input
+                    type="checkbox"
+                    id="vonly"
+                    checked={vOnlyVideo}
+                    onChange={(e) => setVOnlyVideo(e.target.checked)}
+                  />
+                  Only matches that have a video
+                </label>
+                <button id="vgo" className="btn" onClick={handleShowMatchVideos} disabled={loadingVideos} style={{ fontWeight: '600' }}>
+                  {loadingVideos ? 'Loading...' : 'Show match videos'}
+                </button>
+              </div>
+
+              {vStatus && (
+                <div id="vstatus" style={{ margin: '6px 0', fontSize: '13px' }} className={`status-${vStatusType}`}>
+                  {vStatus}
+                </div>
+              )}
+
+              {activeAnalysisView && analysisResults[activeAnalysisView] && (
+                <div className="card" style={{ border: '2px solid #2563eb', background: '#f8fafc', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '16px', color: '#1e3a8a' }}>
+                        Tactical Report: {analysisResults[activeAnalysisView].matchLabel} — Team {analysisResults[activeAnalysisView].teamNumber}
+                      </h4>
+                      <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px' }}>
+                        Robot Identification: <strong>{analysisResults[activeAnalysisView].robotIdentified ? 'Confirmed' : 'Uncertain'}</strong> | 
+                        Bumper: <span style={{ color: analysisResults[activeAnalysisView].alliance === 'red' ? '#dc2626' : '#2563eb', fontWeight: 'bold' }}>{analysisResults[activeAnalysisView].alliance?.toUpperCase()}</span> |
+                        Station Barcode: <strong>{analysisResults[activeAnalysisView].startingStation || 'Calibrated'}</strong>
+                      </div>
+                    </div>
+                    <button className="btn" style={{ padding: '2px 8px', fontSize: '12px' }} onClick={() => setActiveAnalysisView(null)}>
+                      Close
+                    </button>
+                  </div>
+
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '10px', fontSize: '13px', lineHeight: '1.5' }}>
+                    <div style={{ marginBottom: '8px' }}>
+                      <strong>Executive Summary:</strong> {analysisResults[activeAnalysisView].summary}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', margin: '10px 0' }}>
+                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
+                        <strong>Auto ({analysisResults[activeAnalysisView].auto?.rating ?? 'N/A'}/10):</strong>
+                        <div>{analysisResults[activeAnalysisView].auto?.description}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                          Cycles: {analysisResults[activeAnalysisView].auto?.cyclesEstimate} | Reliability: {analysisResults[activeAnalysisView].auto?.reliability}
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
+                        <strong>Teleop ({analysisResults[activeAnalysisView].teleop?.rating ?? 'N/A'}/10):</strong>
+                        <div>{analysisResults[activeAnalysisView].teleop?.description}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                          Speed: {analysisResults[activeAnalysisView].teleop?.cycleSpeed} | Intake: {analysisResults[activeAnalysisView].teleop?.intakeReliability}
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
+                        <strong>Endgame ({analysisResults[activeAnalysisView].endgame?.rating ?? 'N/A'}/10):</strong>
+                        <div>{analysisResults[activeAnalysisView].endgame?.description}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                          Action: {analysisResults[activeAnalysisView].endgame?.action}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid #eee', paddingTop: '8px', marginTop: '8px' }}>
+                      <strong>Alliance Verdict:</strong> {analysisResults[activeAnalysisView].allianceSelectionVerdict || analysisResults[activeAnalysisView].strategicRecommendation}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <table id="vt">
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Year</th>
+                    <th style={{ textAlign: 'left' }}>Event</th>
+                    <th style={{ textAlign: 'left' }}>Match</th>
+                    <th style={{ textAlign: 'left' }}>Alliance & Barcode</th>
+                    <th style={{ textAlign: 'right' }}>Score</th>
+                    <th style={{ textAlign: 'left' }}>Result</th>
+                    <th style={{ textAlign: 'left' }}>Video & AI Analysis</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {videoMatches.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: 'center', color: '#666', padding: '16px' }}>
+                        {loadingVideos ? 'Loading matches...' : 'No matches loaded yet. Enter team number above and click Show match videos.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    videoMatches.map((m) => {
+                      const isAnalyzing = analyzingKey === m.matchKey;
+                      const hasAnalysis = !!analysisResults[m.matchKey];
+                      const clip = clipTimes[m.matchKey] || { start: '', end: '' };
+
+                      return (
+                        <tr key={m.matchKey}>
+                          <td style={{ textAlign: 'left' }}>{m.year}</td>
+                          <td style={{ textAlign: 'left' }}>{m.eventName}</td>
+                          <td style={{ textAlign: 'left' }}>{m.label}</td>
+                          <td style={{ textAlign: 'left', color: m.alliance === 'red' ? '#c00' : '#0066cc', fontWeight: 'bold' }}>
+                            {m.alliance.toUpperCase()}
+                            {m.telemetry?.station && (
+                              <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#555', marginLeft: '6px' }}>
+                                [{m.telemetry.station}]
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>{m.score}</td>
+                          <td style={{ textAlign: 'left', color: m.result === 'Win' ? '#070' : m.result === 'Loss' ? '#c00' : '#444', fontWeight: m.result === 'Win' ? 'bold' : 'normal' }}>
+                            {m.result}
+                          </td>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+                            {m.videoUrl ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                <a href={m.videoUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc', textDecoration: 'underline' }}>
+                                  Watch
+                                </a>
+
+                                <span style={{ fontSize: '11px', color: '#666' }}>
+                                  Clip:{' '}
+                                  <input
+                                    placeholder="start"
+                                    value={clip.start}
+                                    onChange={(e) => setClipTimes({ ...clipTimes, [m.matchKey]: { ...clip, start: e.target.value } })}
+                                    style={{ width: '38px', padding: '1px 3px', fontSize: '11px', border: '1px solid #ccc' }}
+                                  />
+                                  -
+                                  <input
+                                    placeholder="end"
+                                    value={clip.end}
+                                    onChange={(e) => setClipTimes({ ...clipTimes, [m.matchKey]: { ...clip, end: e.target.value } })}
+                                    style={{ width: '38px', padding: '1px 3px', fontSize: '11px', border: '1px solid #ccc' }}
+                                  />
+                                  s
+                                </span>
+
+                                <button
+                                  className="btn"
+                                  onClick={() => handleAnalyzeVideo(m)}
+                                  disabled={isAnalyzing}
+                                  style={{
+                                    padding: '2px 8px',
+                                    fontSize: '12px',
+                                    background: hasAnalysis ? '#e8f4fd' : '#f4f4f4',
+                                    fontWeight: hasAnalysis ? 'bold' : 'normal',
+                                  }}
+                                >
+                                  {isAnalyzing ? 'Analyzing...' : hasAnalysis ? 'Re-Analyze' : 'Analyze'}
+                                </button>
+
+                                {hasAnalysis && (
+                                  <button
+                                    className="btn"
+                                    onClick={() => setActiveAnalysisView(activeAnalysisView === m.matchKey ? null : m.matchKey)}
+                                    style={{ padding: '2px 6px', fontSize: '11px' }}
+                                  >
+                                    {activeAnalysisView === m.matchKey ? 'Hide' : 'View'}
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#999', fontSize: '12px' }}>No video</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* TAB 3: SAVED REPORTS */}
+          {activeTab === 'reports' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
+                  Saved AI Tactical Scouting Reports ({savedReports.length})
+                </h3>
+                {savedReports.length > 0 && (
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      if (confirm('Clear all saved tactical reports?')) setSavedReports([]);
+                    }}
+                  >
+                    Clear All Reports
+                  </button>
+                )}
+              </div>
+
+              {savedReports.length === 0 ? (
+                <div style={{ color: '#666', padding: '16px 0', fontSize: '13px' }}>
+                  No tactical scouting reports saved yet. Analyze match videos in the "Video Analyzing" tab to automatically save reports here.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {savedReports.map((rep, idx) => (
+                    <div key={idx} className="card" style={{ background: '#fff' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <div>
+                          <strong style={{ fontSize: '15px' }}>Team {rep.teamNumber} — {rep.matchLabel}</strong>
+                          <span style={{ fontSize: '11px', color: '#666', marginLeft: '10px' }}>{rep.analyzedAt}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            className="btn"
+                            style={{ padding: '2px 8px', fontSize: '12px' }}
+                            onClick={() => {
+                              const text = `Tactical Scouting Report: Team ${rep.teamNumber} (${rep.matchLabel})\nSummary: ${rep.summary}\nAuto: ${rep.auto?.description}\nTeleop: ${rep.teleop?.description}\nEndgame: ${rep.endgame?.description}\nVerdict: ${rep.allianceSelectionVerdict || rep.strategicRecommendation}`;
+                              navigator.clipboard.writeText(text);
+                              alert('Report copied to clipboard!');
+                            }}
+                          >
+                            Copy Report
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ padding: '2px 8px', fontSize: '12px', color: '#c00' }}
+                            onClick={() => setSavedReports(savedReports.filter((_, i) => i !== idx))}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '13px', lineHeight: '1.5' }}>
+                        <p style={{ margin: '4px 0' }}>{rep.summary}</p>
+                        <div style={{ fontSize: '12px', color: '#555', marginTop: '6px' }}>
+                          Auto ({rep.auto?.rating}/10): {rep.auto?.description}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#555', marginTop: '4px' }}>
+                          Teleop ({rep.teleop?.rating}/10): {rep.teleop?.description}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#555', marginTop: '4px' }}>
+                          Endgame ({rep.endgame?.rating}/10): {rep.endgame?.description}
+                        </div>
+                        <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#1e3a8a', marginTop: '6px' }}>
+                          Verdict: {rep.allianceSelectionVerdict || rep.strategicRecommendation}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      `).join("");
+      );
     }
 
-    function clearReports() {
-      if (confirm("Clear all saved reports?")) {
-        savedReports = [];
-        localStorage.removeItem("scout_reports");
-        updateRepCount();
-        renderReports();
-      }
-    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
