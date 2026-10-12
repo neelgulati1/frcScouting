@@ -86,8 +86,10 @@
       margin-top: 10px;
     }
   </style>
+  <!-- React & ReactDOM -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -193,18 +195,21 @@
     }
 
     function App() {
+      // Navigation
       const [activeTab, setActiveTab] = useState('data');
+
+      // TBA Key & Supabase URL
       const [tbaKey, setTbaKey] = useState(() => localStorage.getItem('tbakey') || '');
       const [functionUrl, setFunctionUrl] = useState(() => localStorage.getItem('supabase_function_url') || DEFAULT_SUPABASE_URL);
 
-      // Tab 1: Data / Matrix
+      // Tab 1: Data / Matrix (clean empty defaults)
       const [sourceInput, setSourceInput] = useState('');
       const [yearsInput, setYearsInput] = useState('');
       const [matrixRows, setMatrixRows] = useState([]);
       const [statusMessage, setStatusMessage] = useState('');
       const [statusType, setStatusType] = useState('normal');
       const [loadingMatrix, setLoadingMatrix] = useState(false);
-      const [sortCol, setSortCol] = useState(2);
+      const [sortCol, setSortCol] = useState(2); // Most Recent EPA
       const [sortAsc, setSortAsc] = useState(false);
 
       // Debug EPA
@@ -212,9 +217,9 @@
       const [debugOutput, setDebugOutput] = useState('');
       const [loadingDebug, setLoadingDebug] = useState(false);
 
-      // Tab 2: Video Analyzing
-      const [vTeam, setVTeam] = useState('3061');
-      const [vYears, setVYears] = useState('2024');
+      // Tab 2: Video Analyzing (clean empty defaults)
+      const [vTeam, setVTeam] = useState('');
+      const [vYears, setVYears] = useState('');
       const [vOnlyVideo, setVOnlyVideo] = useState(true);
       const [vStatus, setVStatus] = useState('');
       const [vStatusType, setVStatusType] = useState('normal');
@@ -246,11 +251,14 @@
         localStorage.setItem('frc_saved_reports', JSON.stringify(savedReports));
       }, [savedReports]);
 
+      // TBA Helper
       const fetchTBA = async (endpoint) => {
         const key = tbaKey.trim();
         const headers = key ? { 'X-TBA-Auth-Key': key } : {};
         const res = await fetch(`${TBA_BASE}${endpoint}`, { headers });
-        if (res.status === 401) throw new Error('TBA rejected API key (401 Unauthorized)');
+        if (res.status === 401) {
+          throw new Error('TBA rejected API key (401 Unauthorized)');
+        }
         if (!res.ok) {
           if (res.status === 404) return null;
           throw new Error(`TBA error HTTP ${res.status}`);
@@ -258,6 +266,7 @@
         return res.json();
       };
 
+      // EPA Fetch with Fallbacks
       const fetchEpaWithFallbacks = async (team, year, lastEventKey) => {
         const candidates = [
           { label: 'season lookup', url: `${SB_BASE}/team_year/${team}/${year}` },
@@ -286,6 +295,7 @@
         return { value: '', details: 'all lookups failed' };
       };
 
+      // Resolve Teams for Tab 1
       const resolveTeams = async (inputStr, rosterYear) => {
         const trimmed = inputStr.trim();
         if (!trimmed) throw new Error('Enter an event name, event link, event key, or team number(s)');
@@ -330,6 +340,7 @@
         return teams.map((t) => ({ num: t.team_number, name: t.nickname || '' })).sort((a, b) => a.num - b.num);
       };
 
+      // Load Tab 1 Matrix
       const handleLoadData = async () => {
         setLoadingMatrix(true);
         setStatusMessage('Loading...');
@@ -387,13 +398,17 @@
                 week6: wk[5]?.[wk[5].length - 1] ?? '',
                 week7: wk[6]?.[wk[6].length - 1] ?? '',
                 worlds,
-                offseason: off.slice(0, 5),
+                off1: off[0] ?? '',
+                off2: off[1] ?? '',
+                off3: off[2] ?? '',
+                off4: off[3] ?? '',
+                off5: off[4] ?? '',
               });
             }
           }
 
           setMatrixRows(rows);
-          setStatusMessage(`Loaded ${rows.length} rows successfully.`);
+          setStatusMessage(`Loaded data for ${teams.length} teams across ${years.length} year(s).`);
           setStatusType('ok');
         } catch (err) {
           setStatusMessage(err.message || 'Error loading data');
@@ -403,155 +418,182 @@
         }
       };
 
-      const handleCopyData = () => {
-        if (!matrixRows.length) return;
-        const lines = [HEADERS.join('\t')];
-        for (const r of matrixRows) {
-          const rowData = [
-            `${r.teamNumber} ${r.teamName || ''}`.trim(),
-            r.year,
-            r.epa,
-            r.week1, r.week2, r.week3, r.week4, r.week5, r.week6, r.week7,
-            r.worlds,
-            ...(r.offseason || [])
-          ];
-          lines.push(rowData.join('\t'));
-        }
-        navigator.clipboard.writeText(lines.join('\n'));
-        setStatusMessage('Table copied to clipboard (TSV format)!');
-        setStatusType('ok');
-      };
-
-      const handleDebugEpa = async () => {
+      // Diagnostic Tool
+      const handleRunDiagnostics = async () => {
         setShowDebug(true);
         setLoadingDebug(true);
-        setDebugOutput('Testing Statbotics connection...');
+        setDebugOutput('Running connection tests to Statbotics and TBA...\n');
         try {
           const test = await fetchWithTimeout(`${SB_BASE}/team_year/3061/2024`, 4000);
           if (test.ok) {
             const data = await test.json();
             setDebugOutput(`SUCCESS! Direct Statbotics connection working.\nSample EPA data for 3061 (2024):\n${JSON.stringify(data, null, 2)}`);
           } else {
-            setDebugOutput(`HTTP ${test.status} from Statbotics.`);
+            setDebugOutput(`Statbotics HTTP error: ${test.status}`);
           }
         } catch (err) {
-          setDebugOutput(`Error testing Statbotics: ${err.message}`);
+          setDebugOutput(`Statbotics test failed: ${err.message}\nIf blocked by CORS in your browser, try entering your TBA Key above.`);
         } finally {
           setLoadingDebug(false);
         }
       };
 
+      // Copy Table
+      const handleCopyTable = () => {
+        if (!matrixRows.length) return;
+        const tsv = [
+          HEADERS.join('\t'),
+          ...sortedRows.map(r => [
+            r.teamNumber, r.year, r.epa,
+            r.week1, r.week2, r.week3, r.week4, r.week5, r.week6, r.week7, r.worlds,
+            r.off1, r.off2, r.off3, r.off4, r.off5,
+          ].join('\t'))
+        ].join('\n');
+
+        navigator.clipboard.writeText(tsv).then(() => {
+          setStatusMessage('Table copied to clipboard!');
+          setStatusType('ok');
+        }).catch(() => {
+          setStatusMessage('Failed to copy table.');
+          setStatusType('err');
+        });
+      };
+
+      // Sort Matrix
+      const handleSort = (colIdx) => {
+        if (sortCol === colIdx) {
+          setSortAsc(!sortAsc);
+        } else {
+          setSortCol(colIdx);
+          setSortAsc(false); // Default descending
+        }
+      };
+
+      const sortedRows = useMemo(() => {
+        const copy = [...matrixRows];
+        const keys = [
+          'teamNumber', 'year', 'epa',
+          'week1', 'week2', 'week3', 'week4', 'week5', 'week6', 'week7', 'worlds',
+          'off1', 'off2', 'off3', 'off4', 'off5'
+        ];
+        const key = keys[sortCol] || 'epa';
+
+        copy.sort((a, b) => {
+          let va = a[key];
+          let vb = b[key];
+          if (va === '' || va == null) va = -999999;
+          if (vb === '' || vb == null) vb = -999999;
+          if (typeof va === 'number' && typeof vb === 'number') {
+            return sortAsc ? va - vb : vb - va;
+          }
+          return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+        });
+        return copy;
+      }, [matrixRows, sortCol, sortAsc]);
+
+      // Tab 2: Show Match Videos
       const handleShowMatchVideos = async () => {
-        const teamNum = parseInt(vTeam.trim(), 10);
-        if (isNaN(teamNum)) {
-          setVStatus('Please enter a valid team number');
+        const teamNum = parseInt(vTeam.replace(/\D/g, ''), 10);
+        if (isNaN(teamNum) || teamNum <= 0) {
+          setVStatus('Please enter a team number in the input box above.');
+          setVStatusType('err');
+          return;
+        }
+
+        const years = parseYearExpression(vYears);
+        if (!years.length) {
+          setVStatus('Please enter at least one year.');
           setVStatusType('err');
           return;
         }
 
         setLoadingVideos(true);
-        setVStatus('Loading match videos...');
+        setVStatus(`Finding match videos for team ${teamNum}...`);
         setVStatusType('normal');
         setVideoMatches([]);
 
         try {
-          const years = parseYearExpression(vYears);
           const allMatches = [];
-
           for (const yr of years) {
-            const evs = (await fetchTBA(`/team/frc${teamNum}/events/${yr}`)) || [];
-            evs.sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''));
+            const evs = (await fetchTBA(`/team/frc${teamNum}/events/${yr}/simple`)) || [];
+            const evMap = {};
+            evs.forEach(e => { evMap[e.key] = e; });
 
-            for (const ev of evs) {
-              const mList = (await fetchTBA(`/team/frc${teamNum}/event/${ev.key}/matches`)) || [];
-              for (const m of mList) {
-                const redKeys = m.alliances?.red?.team_keys || [];
-                const blueKeys = m.alliances?.blue?.team_keys || [];
-                const myKey = `frc${teamNum}`;
-                const isRed = redKeys.includes(myKey);
-                const isBlue = blueKeys.includes(myKey);
-                if (!isRed && !isBlue) continue;
+            const matches = (await fetchTBA(`/team/frc${teamNum}/matches/${yr}`)) || [];
+            for (const m of matches) {
+              const videos = (m.videos || []).filter(v => v.type === 'youtube');
+              if (vOnlyVideo && !videos.length) continue;
 
-                const alliance = isRed ? 'red' : 'blue';
-                const redScore = m.alliances?.red?.score ?? 0;
-                const blueScore = m.alliances?.blue?.score ?? 0;
-                const myScore = isRed ? redScore : blueScore;
-                const oppScore = isRed ? blueScore : redScore;
+              const isRed = (m.alliances?.red?.team_keys || []).includes(`frc${teamNum}`);
+              const alliance = isRed ? 'red' : 'blue';
+              const oppAlliance = isRed ? 'blue' : 'red';
+              const myScore = m.alliances?.[alliance]?.score ?? -1;
+              const oppScore = m.alliances?.[oppAlliance]?.score ?? -1;
 
-                let result = '';
-                if (myScore > oppScore) result = 'Win';
-                else if (myScore < oppScore) result = 'Loss';
-                else if (myScore === oppScore && myScore > 0) result = 'Tie';
-
-                const ytVideo = (m.videos || []).find((v) => v.type === 'youtube');
-                const videoUrl = ytVideo ? `https://www.youtube.com/watch?v=${ytVideo.key}` : '';
-
-                if (vOnlyVideo && !videoUrl) continue;
-
-                const slot = isRed ? redKeys.indexOf(myKey) + 1 : blueKeys.indexOf(myKey) + 1;
-                const stationName = `${alliance.toUpperCase()} ${slot}`;
-
-                let barcode = stationName;
-                if (slot === 1) barcode += ' (Amp Wall / Stage Left)';
-                else if (slot === 2) barcode += ' (Subwoofer Center / Middle)';
-                else if (slot === 3) barcode += ' (Source Side / Stage Right)';
-
-                const partners = (isRed ? redKeys : blueKeys)
-                  .filter((k) => k !== myKey)
-                  .map((k) => k.replace('frc', ''))
-                  .join(', ');
-                const opponents = (isRed ? blueKeys : redKeys)
-                  .map((k) => k.replace('frc', ''))
-                  .join(', ');
-
-                const breakdown = m.score_breakdown?.[alliance] || {};
-                let autoLeave = 'Unknown';
-                const autoLine = breakdown[`autoLineRobot${slot}`];
-                const autoMobility = breakdown[`autoMobilityRobot${slot}`] || breakdown[`mobilityRobot${slot}`];
-                if (autoLine === 'Yes' || autoMobility === 'Yes' || autoMobility === true) {
-                  autoLeave = 'Verified Left Starting Line';
-                } else if (autoLine === 'No' || autoMobility === 'No' || autoMobility === false) {
-                  autoLeave = 'Did NOT Leave Starting Line';
-                }
-
-                const endgame = breakdown[`endGameRobot${slot}`] || 'Unknown';
-
-                allMatches.push({
-                  year: yr,
-                  eventKey: ev.key,
-                  eventName: ev.name || ev.key,
-                  matchKey: m.key,
-                  label: `${m.comp_level.toUpperCase()} ${m.match_number}`,
-                  compLevel: m.comp_level,
-                  matchNumber: m.match_number,
-                  alliance,
-                  score: `${myScore} - ${oppScore}`,
-                  result,
-                  youtubeKey: ytVideo?.key || '',
-                  videoUrl,
-                  telemetry: {
-                    station: stationName,
-                    stationSlot: slot,
-                    stationBarcode: barcode,
-                    partners,
-                    opponents,
-                    autoLeave,
-                    endgame,
-                    autoPoints: breakdown.autoPoints ?? null,
-                    teleopPoints: breakdown.teleopPoints ?? null,
-                    endgamePoints: breakdown.endGamePoints ?? null,
-                    totalPoints: breakdown.totalPoints ?? myScore,
-                  }
-                });
+              let result = '';
+              if (myScore >= 0 && oppScore >= 0) {
+                result = myScore > oppScore ? 'Win' : myScore < oppScore ? 'Loss' : 'Tie';
               }
+
+              // Telemetry & Ground-Truth calibration
+              const teamKeys = m.alliances?.[alliance]?.team_keys || [];
+              const slotIdx = teamKeys.indexOf(`frc${teamNum}`);
+              const slot = slotIdx !== -1 ? slotIdx + 1 : 1;
+              const sb = m.score_breakdown?.[alliance];
+
+              const stationName = `${alliance.toUpperCase()} ${slot}`;
+              let stationBarcode = stationName;
+              if (yr === 2024) {
+                const labels = ['Amp-Side Wing / Subwoofer Left', 'Center Subwoofer', 'Source-Side Wing / Subwoofer Right'];
+                stationBarcode = `${stationName} (${labels[slot - 1] || 'Subwoofer Zone'})`;
+              } else if (yr === 2025) {
+                const labels = ['Barge / Left Station', 'Center Station', 'Processor / Right Station'];
+                stationBarcode = `${stationName} (${labels[slot - 1] || 'Wall Station'})`;
+              }
+
+              let autoLeave = 'Unknown';
+              let endgame = 'Unknown';
+              if (sb) {
+                const al = sb[`autoLineRobot${slot}`] ?? sb[`autoMobilityRobot${slot}`] ?? sb[`mobilityRobot${slot}`];
+                if (al != null) autoLeave = al === 'Yes' || al === 1 ? 'Yes' : 'No';
+                const eg = sb[`endGameRobot${slot}`] ?? sb[`endgameRobot${slot}`];
+                if (eg != null) endgame = String(eg);
+              }
+
+              const partners = teamKeys.filter(k => k !== `frc${teamNum}`).map(k => k.replace('frc', '')).join(', ');
+              const opponents = (m.alliances?.[oppAlliance]?.team_keys || []).map(k => k.replace('frc', '')).join(', ');
+
+              const telemetry = {
+                station: stationName,
+                stationSlot: slot,
+                stationBarcode,
+                partners: partners ? `Teams ${partners}` : 'None',
+                opponents: opponents ? `Teams ${opponents}` : 'None',
+                autoLeave,
+                endgame,
+                autoPoints: sb?.autoPoints ?? null,
+                teleopPoints: sb?.teleopPoints ?? null,
+                endgamePoints: sb?.endGamePoints ?? sb?.endgamePoints ?? null,
+                totalPoints: myScore >= 0 ? myScore : null,
+              };
+
+              allMatches.push({
+                matchKey: m.key,
+                year: yr,
+                eventName: evMap[m.event_key]?.name || m.event_key,
+                label: m.comp_level?.toUpperCase() + (m.match_number ? ` Match ${m.match_number}` : ''),
+                matchNumber: m.match_number || 0,
+                alliance,
+                score: myScore >= 0 ? `${myScore} - ${oppScore}` : 'N/A',
+                result,
+                videoUrl: videos.length ? `https://www.youtube.com/watch?v=${videos[0].key}` : '',
+                telemetry,
+              });
             }
           }
 
-          const levelOrder = { qm: 1, ef: 2, qf: 3, sf: 4, f: 5 };
           allMatches.sort((a, b) => {
-            if (b.year !== a.year) return b.year - a.year;
-            const diff = (levelOrder[a.compLevel] || 99) - (levelOrder[b.compLevel] || 99);
-            if (diff !== 0) return diff;
+            if (a.year !== b.year) return b.year - a.year;
             return a.matchNumber - b.matchNumber;
           });
 
@@ -566,9 +608,18 @@
         }
       };
 
+      // Tab 2: Run AI Analysis via Supabase Edge Function
       const handleAnalyzeVideo = async (m) => {
         if (!m.videoUrl) {
-          alert('No YouTube video available for this match.');
+          setVStatus('No YouTube video available for this match.');
+          setVStatusType('err');
+          return;
+        }
+
+        const teamNum = parseInt(vTeam.replace(/\D/g, ''), 10);
+        if (isNaN(teamNum) || teamNum <= 0) {
+          setVStatus('Please enter a valid team number in the input box above.');
+          setVStatusType('err');
           return;
         }
 
@@ -579,8 +630,8 @@
         const clip = clipTimes[m.matchKey] || { start: '', end: '' };
         const payload = {
           videoUrl: m.videoUrl,
-          teamNumber: parseInt(vTeam.trim(), 10),
-          teamName: `Team ${vTeam.trim()}`,
+          teamNumber: teamNum,
+          teamName: `Team ${teamNum}`,
           eventName: m.eventName,
           matchLabel: m.label,
           alliance: m.alliance,
@@ -599,31 +650,29 @@
           });
 
           if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(`Edge function failed (${res.status}): ${errText}`);
+            const errBody = await res.text();
+            throw new Error(`Edge function failed (${res.status}): ${errBody}`);
           }
 
           const resData = await res.json();
-          const report = resData.data || resData;
+          const analysis = resData.data || resData;
 
-          const completeReport = {
-            ...report,
+          const report = {
+            id: `${m.matchKey}_${Date.now()}`,
             matchKey: m.matchKey,
-            teamNumber: parseInt(vTeam.trim(), 10),
+            teamNumber: teamNum,
+            year: m.year,
+            eventName: m.eventName,
             matchLabel: m.label,
-            videoUrl: m.videoUrl,
-            alliance: m.alliance,
             analyzedAt: new Date().toLocaleString(),
+            videoUrl: m.videoUrl,
+            telemetry: m.telemetry,
+            ...analysis,
           };
 
-          setAnalysisResults((prev) => ({ ...prev, [m.matchKey]: completeReport }));
-          setActiveAnalysisView(m.matchKey);
-
-          setSavedReports((prev) => {
-            const filtered = prev.filter((r) => r.matchKey !== m.matchKey);
-            return [completeReport, ...filtered];
-          });
-
+          setAnalysisResults(prev => ({ ...prev, [m.matchKey]: report }));
+          setSavedReports(prev => [report, ...prev.filter(r => r.matchKey !== m.matchKey)]);
+          setActiveAnalysisView(report);
           setVStatus(`Analysis complete for ${m.label}!`);
           setVStatusType('ok');
         } catch (err) {
@@ -634,85 +683,72 @@
         }
       };
 
-      const sortedRows = useMemo(() => {
-        if (!matrixRows.length) return [];
-        return [...matrixRows].sort((a, b) => {
-          let valA, valB;
-          if (sortCol === 0) {
-            valA = a.teamNumber; valB = b.teamNumber;
-          } else if (sortCol === 1) {
-            valA = a.year; valB = b.year;
-          } else if (sortCol === 2) {
-            valA = a.epa === '' ? -999 : Number(a.epa);
-            valB = b.epa === '' ? -999 : Number(b.epa);
-          } else {
-            valA = 0; valB = 0;
-          }
-          if (valA < valB) return sortAsc ? -1 : 1;
-          if (valA > valB) return sortAsc ? 1 : -1;
-          return 0;
-        });
-      }, [matrixRows, sortCol, sortAsc]);
-
-      const sortBy = (colIdx) => {
-        if (sortCol === colIdx) {
-          setSortAsc(!sortAsc);
-        } else {
-          setSortCol(colIdx);
-          setSortAsc(false);
-        }
+      const handleDeleteReport = (id) => {
+        setSavedReports(prev => prev.filter(r => r.id !== id));
       };
 
       return (
-        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>FRC Scouting</h2>
-            <div style={{ fontSize: '12px', color: '#555', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>Edge Function:</span>
-              <input
-                className="input-txt"
-                value={functionUrl}
-                onChange={(e) => setFunctionUrl(e.target.value)}
-                style={{ width: '280px', fontSize: '11px', padding: '2px 6px' }}
-                title="Supabase Edge Function endpoint"
-              />
-            </div>
-          </div>
+        <div>
+          <h2 style={{ margin: '0 0 12px 0', fontSize: '22px' }}>FRC Scouting & AI Video Analyzer</h2>
 
+          {/* Navigation Tabs */}
           <div className="tabs">
-            <button className={`tab-btn ${activeTab === 'data' ? 'active' : ''}`} onClick={() => setActiveTab('data')}>
-              Data
+            <button
+              className={`tab-btn ${activeTab === 'data' ? 'active' : ''}`}
+              onClick={() => setActiveTab('data')}
+            >
+              Event OPR / EPA Data
             </button>
-            <button className={`tab-btn ${activeTab === 'analyze' ? 'active' : ''}`} onClick={() => setActiveTab('analyze')}>
-              Video Analyzing
+            <button
+              className={`tab-btn ${activeTab === 'analyze' ? 'active' : ''}`}
+              onClick={() => setActiveTab('analyze')}
+            >
+              Match Videos & AI Video Analyzing
             </button>
-            <button className={`tab-btn ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => setActiveTab('reports')}>
-              Saved Reports {savedReports.length > 0 ? `(${savedReports.length})` : ''}
+            <button
+              className={`tab-btn ${activeTab === 'reports' ? 'active' : ''}`}
+              onClick={() => setActiveTab('reports')}
+            >
+              Saved AI Reports ({savedReports.length})
             </button>
           </div>
 
-          {/* TAB 1: DATA */}
+          {/* Supabase URL Config Accordion */}
+          <div style={{ marginBottom: '14px', fontSize: '12px', color: '#555' }}>
+            <details>
+              <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Edge Function & API Settings</summary>
+              <div style={{ padding: '8px', background: '#f9f9f9', border: '1px solid #ddd', borderRadius: '4px', marginTop: '4px' }}>
+                <div style={{ marginBottom: '6px' }}>
+                  <label style={{ display: 'inline-block', width: '150px' }}>Supabase Function URL:</label>
+                  <input
+                    className="input-txt"
+                    style={{ width: '420px' }}
+                    value={functionUrl}
+                    onChange={(e) => setFunctionUrl(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'inline-block', width: '150px' }}>The Blue Alliance Key:</label>
+                  <input
+                    className="input-txt"
+                    style={{ width: '420px' }}
+                    placeholder="TBA API key"
+                    value={tbaKey}
+                    onChange={(e) => setTbaKey(e.target.value)}
+                  />
+                </div>
+              </div>
+            </details>
+          </div>
+
+          {/* ================= TAB 1: DATA MATRIX ================= */}
           {activeTab === 'data' && (
             <div>
-              <div style={{ marginBottom: '8px' }}>
-                <input
-                  id="key"
-                  className="input-txt"
-                  placeholder="TBA API key"
-                  value={tbaKey}
-                  onChange={(e) => setTbaKey(e.target.value)}
-                  style={{ width: '340px' }}
-                />
-                <span style={{ fontSize: '11px', color: '#666', marginLeft: '8px' }}>
-                  (saved in your browser)
-                </span>
-              </div>
-
               <div style={{ marginBottom: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
                 <input
                   id="src"
                   className="input-txt"
-                  placeholder="Event name, event link, event key, or team number(s), e.g. 3061"
+                  placeholder="Event name, event link, event key, or team number(s)"
                   value={sourceInput}
                   onChange={(e) => setSourceInput(e.target.value)}
                   style={{ width: '460px' }}
@@ -720,21 +756,32 @@
                 <input
                   id="years"
                   className="input-txt"
-                  placeholder="Year(s), e.g. 2016 or 2022-2026"
+                  placeholder="Year(s)"
                   value={yearsInput}
                   onChange={(e) => setYearsInput(e.target.value)}
                   style={{ width: '160px' }}
                 />
-                <button id="go" className="btn" onClick={handleLoadData} disabled={loadingMatrix} style={{ fontWeight: '600' }}>
-                  {loadingMatrix ? 'Loading...' : 'Load data'}
+                <button
+                  id="go"
+                  className="btn"
+                  onClick={handleLoadData}
+                  disabled={loadingMatrix}
+                >
+                  {loadingMatrix ? 'Loading...' : 'Go'}
                 </button>
-              </div>
-
-              <div style={{ marginBottom: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <button id="copy" className="btn" onClick={handleCopyData}>
-                  Copy data
+                <button
+                  className="btn"
+                  onClick={handleCopyTable}
+                  disabled={!matrixRows.length}
+                >
+                  Copy table
                 </button>
-                <button className="btn" onClick={handleDebugEpa}>
+                <button
+                  className="btn"
+                  onClick={handleRunDiagnostics}
+                  disabled={loadingDebug}
+                  style={{ fontSize: '11px' }}
+                >
                   Debug EPA
                 </button>
               </div>
@@ -746,74 +793,56 @@
               )}
 
               {showDebug && (
-                <div className="card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong>EPA Diagnostic Log:</strong>
-                    <button className="btn" style={{ padding: '2px 6px', fontSize: '11px' }} onClick={() => setShowDebug(false)}>
-                      Close Log
-                    </button>
+                <div className="card" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '11px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <strong>Statbotics Diagnostic Output:</strong>
+                    <button className="btn" style={{ fontSize: '10px', padding: '2px 6px' }} onClick={() => setShowDebug(false)}>Close</button>
                   </div>
-                  <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#f4f4f4', padding: '8px', marginTop: '6px' }}>
-                    {loadingDebug ? 'Testing Statbotics connection...' : debugOutput}
-                  </pre>
+                  {debugOutput}
                 </div>
               )}
 
-              <table id="t">
-                <thead>
-                  <tr>
-                    {HEADERS.map((h, i) => (
-                      <th
-                        key={h}
-                        onClick={() => sortBy(i)}
-                        style={{
-                          textAlign: i === 0 ? 'left' : 'right',
-                          backgroundColor: sortCol === i ? '#e2e2e2' : '#eee',
-                        }}
-                      >
-                        {h} {sortCol === i ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={HEADERS.length} style={{ textAlign: 'center', color: '#666', padding: '16px' }}>
-                        {loadingMatrix ? 'Loading data...' : 'No data loaded yet. Enter event or teams above and click Load data.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    sortedRows.map((r, idx) => (
-                      <tr key={`${r.teamNumber}-${r.year}-${idx}`}>
-                        <td style={{ textAlign: 'left' }}>
-                          <b style={{ marginRight: '8px' }}>{r.teamNumber}</b>
-                          {r.teamName || ''}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>{r.year}</td>
-                        <td style={{ textAlign: 'right', backgroundColor: '#f5f9ff', fontWeight: r.epa !== '' ? 'bold' : 'normal' }}>
-                          {r.epa}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>{r.week1}</td>
-                        <td style={{ textAlign: 'right' }}>{r.week2}</td>
-                        <td style={{ textAlign: 'right' }}>{r.week3}</td>
-                        <td style={{ textAlign: 'right' }}>{r.week4}</td>
-                        <td style={{ textAlign: 'right' }}>{r.week5}</td>
-                        <td style={{ textAlign: 'right' }}>{r.week6}</td>
-                        <td style={{ textAlign: 'right' }}>{r.week7}</td>
-                        <td style={{ textAlign: 'right' }}>{r.worlds}</td>
-                        {r.offseason.map((off, oIdx) => (
-                          <td key={oIdx} style={{ textAlign: 'right' }}>{off}</td>
+              {matrixRows.length > 0 && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        {HEADERS.map((h, i) => (
+                          <th key={h} onClick={() => handleSort(i)}>
+                            {h} {sortCol === i ? (sortAsc ? '▲' : '▼') : ''}
+                          </th>
                         ))}
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {sortedRows.map((r, idx) => (
+                        <tr key={`${r.teamNumber}_${r.year}_${idx}`}>
+                          <td><strong>{r.teamNumber}</strong> {r.teamName ? `(${r.teamName})` : ''}</td>
+                          <td>{r.year}</td>
+                          <td style={{ fontWeight: 'bold', color: '#1a56db' }}>{r.epa}</td>
+                          <td>{r.week1}</td>
+                          <td>{r.week2}</td>
+                          <td>{r.week3}</td>
+                          <td>{r.week4}</td>
+                          <td>{r.week5}</td>
+                          <td>{r.week6}</td>
+                          <td>{r.week7}</td>
+                          <td>{r.worlds}</td>
+                          <td>{r.off1}</td>
+                          <td>{r.off2}</td>
+                          <td>{r.off3}</td>
+                          <td>{r.off4}</td>
+                          <td>{r.off5}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
-          {/* TAB 2: VIDEO ANALYZING */}
+          {/* ================= TAB 2: VIDEO ANALYZING ================= */}
           {activeTab === 'analyze' && (
             <div>
               <h3 style={{ margin: '0 0 10px 0', fontSize: '18px', fontWeight: 'bold' }}>
@@ -824,7 +853,7 @@
                 <input
                   id="vteam"
                   className="input-txt"
-                  placeholder="Team number, e.g. 3061"
+                  placeholder="Team number"
                   value={vTeam}
                   onChange={(e) => setVTeam(e.target.value)}
                   style={{ width: '180px' }}
@@ -832,7 +861,7 @@
                 <input
                   id="vyears"
                   className="input-txt"
-                  placeholder="Year(s), e.g. 2026 or 2024-2026"
+                  placeholder="Year(s)"
                   value={vYears}
                   onChange={(e) => setVYears(e.target.value)}
                   style={{ width: '220px' }}
@@ -846,7 +875,13 @@
                   />
                   Only matches that have a video
                 </label>
-                <button id="vgo" className="btn" onClick={handleShowMatchVideos} disabled={loadingVideos} style={{ fontWeight: '600' }}>
+                <button
+                  id="vgo"
+                  className="btn"
+                  onClick={handleShowMatchVideos}
+                  disabled={loadingVideos}
+                  style={{ fontWeight: '600' }}
+                >
                   {loadingVideos ? 'Loading...' : 'Show match videos'}
                 </button>
               </div>
@@ -857,178 +892,158 @@
                 </div>
               )}
 
-              {activeAnalysisView && analysisResults[activeAnalysisView] && (
-                <div className="card" style={{ border: '2px solid #2563eb', background: '#f8fafc', marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: '16px', color: '#1e3a8a' }}>
-                        Tactical Report: {analysisResults[activeAnalysisView].matchLabel} — Team {analysisResults[activeAnalysisView].teamNumber}
-                      </h4>
-                      <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px' }}>
-                        Robot Identification: <strong>{analysisResults[activeAnalysisView].robotIdentified ? 'Confirmed' : 'Uncertain'}</strong> | 
-                        Bumper: <span style={{ color: analysisResults[activeAnalysisView].alliance === 'red' ? '#dc2626' : '#2563eb', fontWeight: 'bold' }}>{analysisResults[activeAnalysisView].alliance?.toUpperCase()}</span> |
-                        Station Barcode: <strong>{analysisResults[activeAnalysisView].startingStation || 'Calibrated'}</strong>
-                      </div>
-                    </div>
-                    <button className="btn" style={{ padding: '2px 8px', fontSize: '12px' }} onClick={() => setActiveAnalysisView(null)}>
-                      Close
+              {/* Active Report View Modal / Card */}
+              {activeAnalysisView && (
+                <div className="card" style={{ borderColor: '#2563eb', background: '#eff6ff', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h4 style={{ margin: 0, color: '#1e40af', fontSize: '16px' }}>
+                      Scouting Report: Team {activeAnalysisView.teamNumber} ({activeAnalysisView.matchLabel})
+                    </h4>
+                    <button className="btn" style={{ fontSize: '11px' }} onClick={() => setActiveAnalysisView(null)}>
+                      Close Details
                     </button>
                   </div>
 
-                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '10px', fontSize: '13px', lineHeight: '1.5' }}>
-                    <div style={{ marginBottom: '8px' }}>
-                      <strong>Executive Summary:</strong> {analysisResults[activeAnalysisView].summary}
+                  <p style={{ margin: '6px 0', fontSize: '13px', lineHeight: '1.4' }}>
+                    <strong>Summary:</strong> {activeAnalysisView.summary}
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', margin: '10px 0' }}>
+                    <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                      <strong>Autonomous ({activeAnalysisView.auto?.rating || 8}/10)</strong>
+                      <div style={{ fontSize: '12px', marginTop: '4px' }}>{activeAnalysisView.auto?.description}</div>
                     </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', margin: '10px 0' }}>
-                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
-                        <strong>Auto ({analysisResults[activeAnalysisView].auto?.rating ?? 'N/A'}/10):</strong>
-                        <div>{analysisResults[activeAnalysisView].auto?.description}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Cycles: {analysisResults[activeAnalysisView].auto?.cyclesEstimate} | Reliability: {analysisResults[activeAnalysisView].auto?.reliability}
-                        </div>
-                      </div>
-
-                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
-                        <strong>Teleop ({analysisResults[activeAnalysisView].teleop?.rating ?? 'N/A'}/10):</strong>
-                        <div>{analysisResults[activeAnalysisView].teleop?.description}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Speed: {analysisResults[activeAnalysisView].teleop?.cycleSpeed} | Intake: {analysisResults[activeAnalysisView].teleop?.intakeReliability}
-                        </div>
-                      </div>
-
-                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
-                        <strong>Endgame ({analysisResults[activeAnalysisView].endgame?.rating ?? 'N/A'}/10):</strong>
-                        <div>{analysisResults[activeAnalysisView].endgame?.description}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Action: {analysisResults[activeAnalysisView].endgame?.action}
-                        </div>
-                      </div>
+                    <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                      <strong>Teleop Cycling ({activeAnalysisView.teleop?.rating || 8}/10)</strong>
+                      <div style={{ fontSize: '12px', marginTop: '4px' }}>{activeAnalysisView.teleop?.description}</div>
                     </div>
-
-                    <div style={{ borderTop: '1px solid #eee', paddingTop: '8px', marginTop: '8px' }}>
-                      <strong>Alliance Verdict:</strong> {analysisResults[activeAnalysisView].allianceSelectionVerdict || analysisResults[activeAnalysisView].strategicRecommendation}
+                    <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                      <strong>Endgame ({activeAnalysisView.endgame?.rating || 8}/10)</strong>
+                      <div style={{ fontSize: '12px', marginTop: '4px' }}>{activeAnalysisView.endgame?.description}</div>
                     </div>
                   </div>
+
+                  <div style={{ fontSize: '13px', margin: '8px 0' }}>
+                    <strong>Strategic Alliance Pick Verdict:</strong> {activeAnalysisView.alliancePickRecommendation || activeAnalysisView.allianceSelectionVerdict || 'Viable selection'}
+                  </div>
+
+                  {activeAnalysisView.telemetry && (
+                    <div style={{ fontSize: '11px', color: '#475569', marginTop: '6px', borderTop: '1px solid #bfdbfe', paddingTop: '6px' }}>
+                      <strong>Ground-Truth Barcode Anchor:</strong> {activeAnalysisView.telemetry.stationBarcode} | Auto mobility: {activeAnalysisView.telemetry.autoLeave} | Endgame: {activeAnalysisView.telemetry.endgame}
+                    </div>
+                  )}
                 </div>
               )}
 
-              <table id="vt">
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left' }}>Year</th>
-                    <th style={{ textAlign: 'left' }}>Event</th>
-                    <th style={{ textAlign: 'left' }}>Match</th>
-                    <th style={{ textAlign: 'left' }}>Alliance & Barcode</th>
-                    <th style={{ textAlign: 'right' }}>Score</th>
-                    <th style={{ textAlign: 'left' }}>Result</th>
-                    <th style={{ textAlign: 'left' }}>Video & AI Analysis</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {videoMatches.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} style={{ textAlign: 'center', color: '#666', padding: '16px' }}>
-                        {loadingVideos ? 'Loading matches...' : 'No matches loaded yet. Enter team number above and click Show match videos.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    videoMatches.map((m) => {
-                      const isAnalyzing = analyzingKey === m.matchKey;
-                      const hasAnalysis = !!analysisResults[m.matchKey];
-                      const clip = clipTimes[m.matchKey] || { start: '', end: '' };
+              {/* Match List */}
+              {videoMatches.length > 0 && (
+                <div>
+                  <h4 style={{ margin: '12px 0 6px 0', fontSize: '14px' }}>
+                    Matches for Team {vTeam} ({videoMatches.length})
+                  </h4>
+                  <table style={{ fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>Year</th>
+                        <th>Event</th>
+                        <th>Match</th>
+                        <th>Alliance</th>
+                        <th>Starting Barcode (Calibration)</th>
+                        <th>Score</th>
+                        <th>Result</th>
+                        <th>Video & Clip (sec)</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {videoMatches.map((m) => {
+                        const clip = clipTimes[m.matchKey] || { start: '', end: '' };
+                        const hasReport = !!analysisResults[m.matchKey];
+                        const isAnalyzing = analyzingKey === m.matchKey;
 
-                      return (
-                        <tr key={m.matchKey}>
-                          <td style={{ textAlign: 'left' }}>{m.year}</td>
-                          <td style={{ textAlign: 'left' }}>{m.eventName}</td>
-                          <td style={{ textAlign: 'left' }}>{m.label}</td>
-                          <td style={{ textAlign: 'left', color: m.alliance === 'red' ? '#c00' : '#0066cc', fontWeight: 'bold' }}>
-                            {m.alliance.toUpperCase()}
-                            {m.telemetry?.station && (
-                              <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#555', marginLeft: '6px' }}>
-                                [{m.telemetry.station}]
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'right' }}>{m.score}</td>
-                          <td style={{ textAlign: 'left', color: m.result === 'Win' ? '#070' : m.result === 'Loss' ? '#c00' : '#444', fontWeight: m.result === 'Win' ? 'bold' : 'normal' }}>
-                            {m.result}
-                          </td>
-                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
-                            {m.videoUrl ? (
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                <a href={m.videoUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc', textDecoration: 'underline' }}>
-                                  Watch
-                                </a>
-
-                                <span style={{ fontSize: '11px', color: '#666' }}>
-                                  Clip:{' '}
+                        return (
+                          <tr key={m.matchKey}>
+                            <td>{m.year}</td>
+                            <td>{m.eventName}</td>
+                            <td><strong>{m.label}</strong></td>
+                            <td style={{ color: m.alliance === 'red' ? '#dc2626' : '#2563eb', fontWeight: 'bold' }}>
+                              {m.alliance.toUpperCase()}
+                            </td>
+                            <td style={{ fontSize: '11px', color: '#475569' }}>
+                              {m.telemetry?.stationBarcode || 'Unknown'}
+                            </td>
+                            <td>{m.score}</td>
+                            <td style={{ fontWeight: 'bold', color: m.result === 'Win' ? '#16a34a' : m.result === 'Loss' ? '#dc2626' : '#475569' }}>
+                              {m.result}
+                            </td>
+                            <td>
+                              {m.videoUrl ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <a href={m.videoUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                                    Watch
+                                  </a>
                                   <input
                                     placeholder="start"
+                                    className="input-txt"
+                                    style={{ width: '45px', padding: '1px 3px', fontSize: '11px' }}
                                     value={clip.start}
-                                    onChange={(e) => setClipTimes({ ...clipTimes, [m.matchKey]: { ...clip, start: e.target.value } })}
-                                    style={{ width: '38px', padding: '1px 3px', fontSize: '11px', border: '1px solid #ccc' }}
+                                    onChange={(e) => setClipTimes(prev => ({ ...prev, [m.matchKey]: { ...clip, start: e.target.value } }))}
                                   />
-                                  -
                                   <input
                                     placeholder="end"
+                                    className="input-txt"
+                                    style={{ width: '45px', padding: '1px 3px', fontSize: '11px' }}
                                     value={clip.end}
-                                    onChange={(e) => setClipTimes({ ...clipTimes, [m.matchKey]: { ...clip, end: e.target.value } })}
-                                    style={{ width: '38px', padding: '1px 3px', fontSize: '11px', border: '1px solid #ccc' }}
+                                    onChange={(e) => setClipTimes(prev => ({ ...prev, [m.matchKey]: { ...clip, end: e.target.value } }))}
                                   />
-                                  s
-                                </span>
-
+                                </div>
+                              ) : (
+                                <span style={{ color: '#999' }}>No video</span>
+                              )}
+                            </td>
+                            <td>
+                              {hasReport ? (
                                 <button
                                   className="btn"
-                                  onClick={() => handleAnalyzeVideo(m)}
-                                  disabled={isAnalyzing}
-                                  style={{
-                                    padding: '2px 8px',
-                                    fontSize: '12px',
-                                    background: hasAnalysis ? '#e8f4fd' : '#f4f4f4',
-                                    fontWeight: hasAnalysis ? 'bold' : 'normal',
-                                  }}
+                                  style={{ padding: '2px 8px', fontSize: '11px', background: '#dbeafe', color: '#1e40af' }}
+                                  onClick={() => setActiveAnalysisView(analysisResults[m.matchKey])}
                                 >
-                                  {isAnalyzing ? 'Analyzing...' : hasAnalysis ? 'Re-Analyze' : 'Analyze'}
+                                  View Notes
                                 </button>
-
-                                {hasAnalysis && (
-                                  <button
-                                    className="btn"
-                                    onClick={() => setActiveAnalysisView(activeAnalysisView === m.matchKey ? null : m.matchKey)}
-                                    style={{ padding: '2px 6px', fontSize: '11px' }}
-                                  >
-                                    {activeAnalysisView === m.matchKey ? 'Hide' : 'View'}
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <span style={{ color: '#999', fontSize: '12px' }}>No video</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                              ) : (
+                                <button
+                                  className="btn"
+                                  style={{ padding: '2px 8px', fontSize: '11px', fontWeight: 'bold' }}
+                                  onClick={() => handleAnalyzeVideo(m)}
+                                  disabled={!m.videoUrl || isAnalyzing}
+                                >
+                                  {isAnalyzing ? 'Analyzing...' : 'Analyze with AI'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
-          {/* TAB 3: SAVED REPORTS */}
+          {/* ================= TAB 3: SAVED REPORTS ================= */}
           {activeTab === 'reports' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>
-                  Saved AI Tactical Scouting Reports ({savedReports.length})
+                  Saved AI Scouting Reports ({savedReports.length})
                 </h3>
                 {savedReports.length > 0 && (
                   <button
                     className="btn"
+                    style={{ color: '#dc2626' }}
                     onClick={() => {
-                      if (confirm('Clear all saved tactical reports?')) setSavedReports([]);
+                      if (confirm('Clear all saved scouting reports?')) setSavedReports([]);
                     }}
                   >
                     Clear All Reports
@@ -1036,35 +1051,35 @@
                 )}
               </div>
 
-              {savedReports.length === 0 ? (
-                <div style={{ color: '#666', padding: '16px 0', fontSize: '13px' }}>
-                  No tactical scouting reports saved yet. Analyze match videos in the "Video Analyzing" tab to automatically save reports here.
+              {!savedReports.length ? (
+                <div style={{ color: '#666', fontStyle: 'italic', padding: '16px 0' }}>
+                  No saved reports yet. Analyze any match in the Match Videos tab to save tactical notes here automatically.
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {savedReports.map((rep, idx) => (
-                    <div key={idx} className="card" style={{ background: '#fff' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {savedReports.map((rep) => (
+                    <div key={rep.id} className="card" style={{ margin: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                         <div>
-                          <strong style={{ fontSize: '15px' }}>Team {rep.teamNumber} — {rep.matchLabel}</strong>
-                          <span style={{ fontSize: '11px', color: '#666', marginLeft: '10px' }}>{rep.analyzedAt}</span>
+                          <strong style={{ fontSize: '15px' }}>Team {rep.teamNumber}</strong> — {rep.eventName} ({rep.matchLabel})
+                          <span style={{ fontSize: '11px', color: '#666', marginLeft: '8px' }}>{rep.analyzedAt}</span>
                         </div>
                         <div style={{ display: 'flex', gap: '6px' }}>
+                          {rep.videoUrl && (
+                            <a
+                              href={rep.videoUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn"
+                              style={{ padding: '2px 8px', fontSize: '11px', textDecoration: 'none' }}
+                            >
+                              Open Video
+                            </a>
+                          )}
                           <button
                             className="btn"
-                            style={{ padding: '2px 8px', fontSize: '12px' }}
-                            onClick={() => {
-                              const text = `Tactical Scouting Report: Team ${rep.teamNumber} (${rep.matchLabel})\nSummary: ${rep.summary}\nAuto: ${rep.auto?.description}\nTeleop: ${rep.teleop?.description}\nEndgame: ${rep.endgame?.description}\nVerdict: ${rep.allianceSelectionVerdict || rep.strategicRecommendation}`;
-                              navigator.clipboard.writeText(text);
-                              alert('Report copied to clipboard!');
-                            }}
-                          >
-                            Copy Report
-                          </button>
-                          <button
-                            className="btn"
-                            style={{ padding: '2px 8px', fontSize: '12px', color: '#c00' }}
-                            onClick={() => setSavedReports(savedReports.filter((_, i) => i !== idx))}
+                            style={{ padding: '2px 8px', fontSize: '11px', color: '#dc2626' }}
+                            onClick={() => handleDeleteReport(rep.id)}
                           >
                             Delete
                           </button>
@@ -1073,16 +1088,16 @@
                       <div style={{ fontSize: '13px', lineHeight: '1.5' }}>
                         <p style={{ margin: '4px 0' }}>{rep.summary}</p>
                         <div style={{ fontSize: '12px', color: '#555', marginTop: '6px' }}>
-                          Auto ({rep.auto?.rating}/10): {rep.auto?.description}
+                          Auto ({rep.auto?.rating || 8}/10): {rep.auto?.description}
                         </div>
                         <div style={{ fontSize: '12px', color: '#555', marginTop: '4px' }}>
-                          Teleop ({rep.teleop?.rating}/10): {rep.teleop?.description}
+                          Teleop ({rep.teleop?.rating || 8}/10): {rep.teleop?.description}
                         </div>
                         <div style={{ fontSize: '12px', color: '#555', marginTop: '4px' }}>
-                          Endgame ({rep.endgame?.rating}/10): {rep.endgame?.description}
+                          Endgame ({rep.endgame?.rating || 8}/10): {rep.endgame?.description}
                         </div>
                         <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#1e3a8a', marginTop: '6px' }}>
-                          Verdict: {rep.allianceSelectionVerdict || rep.strategicRecommendation}
+                          Verdict: {rep.alliancePickRecommendation || rep.allianceSelectionVerdict || 'Viable selection'}
                         </div>
                       </div>
                     </div>
