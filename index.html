@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FRC Scouting</title>
+  <title>FRC Scouting & AI Tactical Video Analyzer</title>
   <style>
     body {
       font-family: sans-serif;
@@ -89,7 +89,7 @@
   <!-- React & ReactDOM -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- Babel -->
+  <!-- Babel for running in-browser -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -202,7 +202,7 @@
       const [tbaKey, setTbaKey] = useState(() => localStorage.getItem('tbakey') || '');
       const [functionUrl, setFunctionUrl] = useState(() => localStorage.getItem('supabase_function_url') || DEFAULT_SUPABASE_URL);
 
-      // Tab 1: Data / Matrix
+      // Tab 1: Data / Matrix (OPR/EPA untouched)
       const [sourceInput, setSourceInput] = useState('');
       const [yearsInput, setYearsInput] = useState('');
       const [matrixRows, setMatrixRows] = useState([]);
@@ -217,7 +217,7 @@
       const [debugOutput, setDebugOutput] = useState('');
       const [loadingDebug, setLoadingDebug] = useState(false);
 
-      // Tab 2: Video Analyzing
+      // Tab 2: Video Analyzing (blank defaults)
       const [vTeam, setVTeam] = useState('');
       const [vYears, setVYears] = useState('');
       const [vOnlyVideo, setVOnlyVideo] = useState(true);
@@ -454,7 +454,7 @@
         }
       };
 
-      // Tab 2: Show Match Videos
+      // Tab 2: Show Match Videos (Sorted newest to oldest)
       const handleShowMatchVideos = async () => {
         const teamNum = parseInt(vTeam.trim(), 10);
         if (isNaN(teamNum)) {
@@ -502,7 +502,6 @@
 
                 if (vOnlyVideo && !videoUrl) continue;
 
-                // Driver station slot & barcode
                 const slot = isRed ? redKeys.indexOf(myKey) + 1 : blueKeys.indexOf(myKey) + 1;
                 const stationName = `${alliance.toUpperCase()} ${slot}`;
 
@@ -564,6 +563,7 @@
             }
           }
 
+          // Sort matches from most recent to oldest
           allMatches.sort((a, b) => {
             const timeA = String(a.startDate || '') + String(a.time || 0).padStart(10, '0');
             const timeB = String(b.startDate || '') + String(b.time || 0).padStart(10, '0');
@@ -906,7 +906,7 @@
                 </div>
               )}
 
-              {/* Analysis Result Banner */}
+              {/* Tactical Analysis Result Banner */}
               {activeAnalysisView && analysisResults[activeAnalysisView] && (
                 <div className="card" style={{ border: '2px solid #2563eb', background: '#f8fafc', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
@@ -930,35 +930,82 @@
                       <strong>Executive Summary:</strong> {analysisResults[activeAnalysisView].summary}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px', margin: '10px 0' }}>
-                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
-                        <strong>Autonomous Action:</strong>
-                        <div>{analysisResults[activeAnalysisView].auto?.description}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px', margin: '10px 0' }}>
+                      <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                        <strong style={{ color: '#1e3a8a' }}>Auto (Exact Auto):</strong>
+                        <div style={{ marginTop: '4px', fontSize: '12px' }}>
+                          {analysisResults[activeAnalysisView].auto?.exactAuto || analysisResults[activeAnalysisView].auto?.description}
+                        </div>
                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Scored: {analysisResults[activeAnalysisView].auto?.cyclesEstimate} | Movement: {analysisResults[activeAnalysisView].auto?.reliability}
+                          Scored: {analysisResults[activeAnalysisView].auto?.cyclesEstimate || 'Observed'} | Execution: {analysisResults[activeAnalysisView].auto?.reliability || 'Observed'}
                         </div>
                       </div>
 
-                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
-                        <strong>Teleop Play & Cycling:</strong>
-                        <div>{analysisResults[activeAnalysisView].teleop?.description}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Speed: {analysisResults[activeAnalysisView].teleop?.cycleSpeed} | Intake: {analysisResults[activeAnalysisView].teleop?.intakeReliability}
+                      <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                        <strong style={{ color: '#1e3a8a' }}>Transition Period (10s post-auto):</strong>
+                        <div style={{ marginTop: '4px', fontSize: '12px' }}>
+                          {analysisResults[activeAnalysisView].transitionPeriod?.description || 'Active transition to field play.'}
                         </div>
                       </div>
 
-                      <div style={{ background: '#f1f5f9', padding: '8px', borderRadius: '3px' }}>
-                        <strong>Endgame & Climb:</strong>
-                        <div>{analysisResults[activeAnalysisView].endgame?.description}</div>
+                      <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                        <strong style={{ color: '#1e3a8a' }}>Inactive & Active Teleop:</strong>
+                        <div style={{ marginTop: '4px', fontSize: '12px' }}>
+                          {analysisResults[activeAnalysisView].teleop?.inactiveNotes && (
+                            <div style={{ marginBottom: '3px' }}>
+                              <strong>Inactive:</strong> {analysisResults[activeAnalysisView].teleop.inactiveNotes}
+                            </div>
+                          )}
+                          {analysisResults[activeAnalysisView].teleop?.activeNotes && (
+                            <div>
+                              <strong>Active:</strong> {analysisResults[activeAnalysisView].teleop.activeNotes}
+                            </div>
+                          )}
+                          {!analysisResults[activeAnalysisView].teleop?.inactiveNotes && !analysisResults[activeAnalysisView].teleop?.activeNotes && (
+                            <div>{analysisResults[activeAnalysisView].teleop?.description}</div>
+                          )}
+                        </div>
                         <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Action: {analysisResults[activeAnalysisView].endgame?.climbType || analysisResults[activeAnalysisView].endgame?.action} | Time: {analysisResults[activeAnalysisView].endgame?.timeRemainingSeconds}s
+                          Speed: {analysisResults[activeAnalysisView].teleop?.cycleSpeed || 'Moderate'} | Intake: {analysisResults[activeAnalysisView].teleop?.intakeReliability || 'Observed'}
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                        <strong style={{ color: '#1e3a8a' }}>Endgame & Climb:</strong>
+                        <div style={{ marginTop: '4px', fontSize: '12px' }}>
+                          {analysisResults[activeAnalysisView].endgame?.description}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                          Climb: {analysisResults[activeAnalysisView].endgame?.climbType || analysisResults[activeAnalysisView].endgame?.climbLevel || 'Observed'} | Time: {analysisResults[activeAnalysisView].endgame?.timeRemainingSeconds || analysisResults[activeAnalysisView].endgame?.climbTimeSeconds || 'N/A'}s
                         </div>
                       </div>
                     </div>
+
+                    {/* Extra Stats */}
+                    {analysisResults[activeAnalysisView].extraStats && (
+                      <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', padding: '8px 10px', borderRadius: '4px', margin: '8px 0', fontSize: '12px' }}>
+                        <strong style={{ color: '#6b21a8' }}>Extra Stats:</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px', marginTop: '4px' }}>
+                          <div><strong>Driving:</strong> {analysisResults[activeAnalysisView].extraStats.driverSkill || 'Observed driving skill'}</div>
+                          <div><strong>Durability:</strong> {analysisResults[activeAnalysisView].extraStats.durability || 'Stable'}</div>
+                          <div><strong>Human Player:</strong> {analysisResults[activeAnalysisView].extraStats.humanPlayer || 'N/A'}</div>
+                          <div><strong>Other:</strong> {analysisResults[activeAnalysisView].extraStats.otherNotes || 'None'}</div>
+                        </div>
+                      </div>
+                    )}
 
                     <div style={{ borderTop: '1px solid #eee', paddingTop: '8px', marginTop: '8px' }}>
-                      <strong>Alliance Verdict:</strong> {analysisResults[activeAnalysisView].allianceSelectionVerdict || analysisResults[activeAnalysisView].strategicRecommendation}
+                      <strong>Alliance Verdict:</strong> {analysisResults[activeAnalysisView].alliancePickRecommendation || analysisResults[activeAnalysisView].allianceSelectionVerdict || analysisResults[activeAnalysisView].strategicRecommendation}
                     </div>
+
+                    {analysisResults[activeAnalysisView].detailedScoutNotes && (
+                      <div style={{ marginTop: '8px', padding: '8px', background: '#f1f5f9', borderRadius: '4px', fontSize: '12px' }}>
+                        <strong>Complete Qualitative Scout Notes:</strong>
+                        <pre style={{ margin: '4px 0 0 0', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                          {analysisResults[activeAnalysisView].detailedScoutNotes}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1105,7 +1152,7 @@
                             className="btn"
                             style={{ padding: '2px 8px', fontSize: '12px' }}
                             onClick={() => {
-                              const text = `Tactical Scouting Report: Team ${rep.teamNumber} (${rep.matchLabel})\nSummary: ${rep.summary}\nAuto: ${rep.auto?.description}\nTeleop: ${rep.teleop?.description}\nEndgame: ${rep.endgame?.description}\nVerdict: ${rep.allianceSelectionVerdict || rep.strategicRecommendation}`;
+                              const text = `Tactical Scouting Report: Team ${rep.teamNumber} (${rep.matchLabel})\nSummary: ${rep.summary}\nAuto: ${rep.auto?.exactAuto || rep.auto?.description}\nTransition: ${rep.transitionPeriod?.description}\nTeleop Inactive: ${rep.teleop?.inactiveNotes}\nTeleop Active: ${rep.teleop?.activeNotes}\nEndgame: ${rep.endgame?.description}\nVerdict: ${rep.allianceSelectionVerdict || rep.strategicRecommendation}`;
                               navigator.clipboard.writeText(text);
                               alert('Report copied to clipboard!');
                             }}
@@ -1122,18 +1169,42 @@
                         </div>
                       </div>
                       <div style={{ fontSize: '13px', lineHeight: '1.5' }}>
-                        <p style={{ margin: '4px 0' }}>{rep.summary}</p>
-                        <div style={{ fontSize: '12px', color: '#555', marginTop: '6px' }}>
-                          Auto: {rep.auto?.description}
+                        <p style={{ margin: '4px 0' }}><b>Summary:</b> {rep.summary}</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px', marginBottom: '8px', fontSize: '12px' }}>
+                          <div style={{ padding: '6px', background: '#fcfcfc', border: '1px solid #ddd', borderRadius: '3px' }}>
+                            <b style={{ color: '#1e3a8a' }}>Auto:</b>
+                            <div style={{ marginTop: '2px' }}>{rep.auto?.exactAuto || rep.auto?.description}</div>
+                          </div>
+                          <div style={{ padding: '6px', background: '#fcfcfc', border: '1px solid #ddd', borderRadius: '3px' }}>
+                            <b style={{ color: '#1e3a8a' }}>Transition Period:</b>
+                            <div style={{ marginTop: '2px' }}>{rep.transitionPeriod?.description || 'Active field transition & neutral zone engagement.'}</div>
+                          </div>
+                          <div style={{ padding: '6px', background: '#fcfcfc', border: '1px solid #ddd', borderRadius: '3px' }}>
+                            <b style={{ color: '#1e3a8a' }}>Teleop:</b>
+                            <div style={{ marginTop: '2px' }}>
+                              {rep.teleop?.inactiveNotes && <div><b>Inactive:</b> {rep.teleop.inactiveNotes}</div>}
+                              {rep.teleop?.activeNotes && <div><b>Active:</b> {rep.teleop.activeNotes}</div>}
+                              {!rep.teleop?.inactiveNotes && !rep.teleop?.activeNotes && <div>{rep.teleop?.description}</div>}
+                            </div>
+                          </div>
+                          <div style={{ padding: '6px', background: '#fcfcfc', border: '1px solid #ddd', borderRadius: '3px' }}>
+                            <b style={{ color: '#1e3a8a' }}>Endgame:</b>
+                            <div style={{ marginTop: '2px' }}>{rep.endgame?.description}</div>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '12px', color: '#555', marginTop: '4px' }}>
-                          Teleop: {rep.teleop?.description}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#555', marginTop: '4px' }}>
-                          Endgame: {rep.endgame?.description}
-                        </div>
+                        {rep.extraStats && (
+                          <div style={{ padding: '6px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: '3px', marginBottom: '8px', fontSize: '11px' }}>
+                            <b style={{ color: '#6b21a8' }}>Extra Stats:</b>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px', marginTop: '2px' }}>
+                              <div><b>Driving:</b> {rep.extraStats?.driverSkill || 'Observed agile driving.'}</div>
+                              <div><b>Durability:</b> {rep.extraStats?.durability || 'Remained intact.'}</div>
+                              <div><b>Human Player:</b> {rep.extraStats?.humanPlayer || 'Not visible.'}</div>
+                              <div><b>Other Quirks:</b> {rep.extraStats?.otherNotes || 'None.'}</div>
+                            </div>
+                          </div>
+                        )}
                         <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#1e3a8a', marginTop: '6px' }}>
-                          Verdict: {rep.allianceSelectionVerdict || rep.strategicRecommendation}
+                          Verdict: {rep.allianceSelectionVerdict || rep.strategicRecommendation || rep.alliancePickRecommendation}
                         </div>
                       </div>
                     </div>
