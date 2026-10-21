@@ -4,7 +4,7 @@
 body{font-family:sans-serif;margin:16px}
 table{border-collapse:collapse;margin-top:10px}
 td,th{border:1px solid #ccc;padding:4px 8px;text-align:right}
-td:first-child,th:first-child{text-align:left}
+td:first-child,th:first-child{text-align:left;user-select:none;-webkit-user-select:none}
 th{cursor:pointer;background:#eee}
 input{margin:2px 0}
 .err{font-weight:bold}
@@ -293,6 +293,20 @@ $("copy").onclick=async()=>{
   $("status").textContent="Copied! Paste into cell B2 of your sheet.";
 };
 
+
+// When you highlight table cells and copy by hand, leave the Team column out of what gets copied
+document.addEventListener("copy",e=>{
+  const sel=window.getSelection();
+  if(!sel||sel.isCollapsed||!sel.rangeCount) return;
+  const lines=[];
+  document.querySelectorAll("#t tr").forEach(tr=>{
+    const cells=[...tr.children].slice(1).filter(c=>sel.containsNode(c,true));
+    if(cells.length) lines.push(cells.map(c=>c.textContent.trim()).join("\t"));
+  });
+  if(!lines.length) return;
+  e.clipboardData.setData("text/plain",lines.join("\n"));
+  e.preventDefault();
+});
 
 // red text for errors, green when finished
 (function(){
